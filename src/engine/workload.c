@@ -24,6 +24,50 @@ static void parse_bursts(sim_t *sim, sim_pid_t pid, char *burst_str) {
         } else if (token[0] == 'I' || token[0] == 'i') {
             int dur = atoi(token + 1);
             if (dur > 0) sim_add_burst(sim, pid, BURST_IO, (uint16_t)dur);
+        } else if (token[0] == 'A' || token[0] == 'a') {
+            int rid = atoi(token + 1);
+            if (sim->procs[pid].num_bursts < PRISM_MAX_BURSTS) {
+                burst_t *b = &sim->procs[pid].bursts[sim->procs[pid].num_bursts++];
+                b->kind = BURST_ACQUIRE;
+                b->duration = 1;
+                b->remaining = 1;
+                b->target_id = (int16_t)rid;
+            }
+        } else if (token[0] == 'R' || token[0] == 'r') {
+            int rid = atoi(token + 1);
+            if (sim->procs[pid].num_bursts < PRISM_MAX_BURSTS) {
+                burst_t *b = &sim->procs[pid].bursts[sim->procs[pid].num_bursts++];
+                b->kind = BURST_RELEASE;
+                b->duration = 1;
+                b->remaining = 1;
+                b->target_id = (int16_t)rid;
+            }
+        } else if (token[0] == 'S' || token[0] == 's') {
+            int target = atoi(token + 1);
+            if (sim->procs[pid].num_bursts < PRISM_MAX_BURSTS) {
+                burst_t *b = &sim->procs[pid].bursts[sim->procs[pid].num_bursts++];
+                b->kind = BURST_IPC_SEND;
+                b->duration = 1;
+                b->remaining = 1;
+                b->target_id = (int16_t)target;
+                b->extra_data = 100;
+            }
+        } else if (token[0] == 'W' || token[0] == 'w') {
+            int sender = atoi(token + 1);
+            if (sim->procs[pid].num_bursts < PRISM_MAX_BURSTS) {
+                burst_t *b = &sim->procs[pid].bursts[sim->procs[pid].num_bursts++];
+                b->kind = BURST_IPC_RECV;
+                b->duration = 1;
+                b->remaining = 1;
+                b->target_id = (int16_t)sender;
+            }
+        } else if (token[0] == 'K' || token[0] == 'k') {
+            if (sim->procs[pid].num_bursts < PRISM_MAX_BURSTS) {
+                burst_t *b = &sim->procs[pid].bursts[sim->procs[pid].num_bursts++];
+                b->kind = BURST_CHECKPOINT;
+                b->duration = 1;
+                b->remaining = 1;
+            }
         }
         token = strtok(NULL, ",");
     }
@@ -87,6 +131,12 @@ bool workload_load_file(const char *filepath, sim_t *sim, workload_config_t *cfg
             int lat = atoi(p + 12);
             if (cfg) { cfg->disk_latency = lat; cfg->has_disk_latency = true; }
             if (sim) sim->disk_latency = lat;
+        } else if (strncmp(p, "resource", 8) == 0) {
+            char rname[32];
+            int rinst = 1;
+            if (sscanf(p + 8, "%31s %d", rname, &rinst) >= 1) {
+                if (sim) sim_add_resource(sim, rname, rinst);
+            }
         } else if (strncmp(p, "sched", 5) == 0) {
             char val[32];
             sscanf(p + 5, "%31s", val);

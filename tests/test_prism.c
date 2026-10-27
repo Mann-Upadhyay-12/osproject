@@ -262,6 +262,84 @@ static void test_cfs_bfs_schedulers(void) {
     TEST_PASS();
 }
 
+static void test_resource_manager_and_deadlock(void) {
+    TEST_CASE("Resource Manager, WFG Cycle Detection & Checkpoint Rollback");
+
+    sim_t sim;
+    sim_init(&sim, 2, 8, 2, SCHED_RR, REPL_LRU, 42);
+
+    int32_t r0 = sim_add_resource(&sim, "Disk", 1);
+    int32_t r1 = sim_add_resource(&sim, "GPU", 1);
+    ASSERT_EQ(r0, 0);
+    ASSERT_EQ(r1, 1);
+
+    /* P0: Checkpoint -> Acquire R0 -> CPU 2 -> Acquire R1 */
+    sim_pid_t p0 = sim_add_process(&sim, "P0", 0);
+    sim_add_burst(&sim, p0, BURST_CHECKPOINT, 1);
+    sim_add_burst(&sim, p0, BURST_ACQUIRE, 1); sim.procs[p0].bursts[1].target_id = (int16_t)r0;
+    sim_add_burst(&sim, p0, BURST_CPU, 2);
+    sim_add_burst(&sim, p0, BURST_ACQUIRE, 1); sim.procs[p0].bursts[3].target_id = (int16_t)r1;
+    sim_add_burst(&sim, p0, BURST_CPU, 4);
+
+    /* P1: Checkpoint -> CPU 1 -> Acquire R1 -> CPU 1 -> Acquire R0 (Deadlock!) */
+    sim_pid_t p1 = sim_add_process(&sim, "P1", 0);
+    sim_add_burst(&sim, p1, BURST_CHECKPOINT, 1);
+    sim_add_burst(&sim, p1, BURST_CPU, 1);
+    sim_add_burst(&sim, p1, BURST_ACQUIRE, 1); sim.procs[p1].bursts[2].target_id = (int16_t)r1;
+    sim_add_burst(&sim, p1, BURST_CPU, 1);
+    sim_add_burst(&sim, p1, BURST_ACQUIRE, 1); sim.procs[p1].bursts[4].target_id = (int16_t)r0;
+    sim_add_burst(&sim, p1, BURST_CPU, 4);
+
+    /* Run until deadlock cycle forms */
+    for (int t = 0; t < 6; t++) {
+        sim_step(&sim);
+    }
+
+    ASSERT_TRUE(sim.deadlock_detected);
+    ASSERT_EQ(sim.deadlock_cycle_len, 2);
+
+    /* Test Automatic Checkpoint Rollback recovery */
+    bool recovered = sim_recover_deadlock_rollback(&sim);
+    ASSERT_TRUE(recovered);
+    ASSERT_FALSE(sim.deadlock_detected);
+
+    /* Run to completion */
+    sim_run(&sim);
+    ASSERT_TRUE(sim_is_done(&sim));
+
+    TEST_PASS();
+}
+
+static void test_ipc_message_queue(void) {
+    TEST_CASE("IPC Message Queue Producer-Consumer Synchronization");
+
+    sim_t sim;
+    sim_init(&sim, 1, 8, 2, SCHED_RR, REPL_LRU, 42);
+
+    /* P0 sends message to P1, then P1 receives it */
+    sim_pid_t p_prod = sim_add_process(&sim, "Producer", 0);
+    sim_pid_t p_cons = sim_add_process(&sim, "Consumer", 0);
+
+    /* Consumer immediately tries to receive from producer -> should block */
+    sim_add_burst(&sim, p_cons, BURST_IPC_RECV, 1);
+    sim.procs[p_cons].bursts[0].target_id = (int16_t)p_prod;
+    sim_add_burst(&sim, p_cons, BURST_CPU, 3);
+
+    /* Producer runs, then sends message to Consumer -> Consumer should unblock */
+    sim_add_burst(&sim, p_prod, BURST_CPU, 2);
+    sim_add_burst(&sim, p_prod, BURST_IPC_SEND, 1);
+    sim.procs[p_prod].bursts[1].target_id = (int16_t)p_cons;
+    sim.procs[p_prod].bursts[1].extra_data = 999;
+    sim_add_burst(&sim, p_prod, BURST_CPU, 2);
+
+    sim_run(&sim);
+    ASSERT_TRUE(sim_is_done(&sim));
+    ASSERT_EQ(sim.procs[p_cons].state, PROC_TERMINATED);
+    ASSERT_EQ(sim.procs[p_prod].state, PROC_TERMINATED);
+
+    TEST_PASS();
+}
+
 int main(void) {
     TEST_SUITE_BEGIN("PRISM Core, Scheduling & VM Suite");
 
@@ -272,6 +350,8 @@ int main(void) {
     test_fault_injection();
     test_sjf_srtf_schedulers();
     test_cfs_bfs_schedulers();
+    test_resource_manager_and_deadlock();
+    test_ipc_message_queue();
 
     TEST_SUITE_SUMMARY();
     return (g_tests_failed == 0) ? 0 : 1;

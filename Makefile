@@ -30,6 +30,7 @@ $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)/engine $(BUILD_DIR)/sched $(BUILD_DIR)/vm $(BUILD_DIR)/cli $(BUILD_DIR)/ui
 
 $(BUILD_DIR)/%.o: src/%.c | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(STATIC_LIB): $(LIB_OBJS)
@@ -41,7 +42,7 @@ $(CLI_BIN): $(CLI_SRCS) $(STATIC_LIB)
 $(TUI_BIN): $(TUI_SRCS) $(STATIC_LIB)
 	$(CC) $(CFLAGS) $< $(STATIC_LIB) $(NCURSES_LIBS) -o $@
 
-$(TEST_BIN): $(TEST_SRCS) $(STATIC_LIB)
+$(TEST_BIN): $(TEST_SRCS) $(STATIC_LIB) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $< $(STATIC_LIB) -o $@
 
 test: $(TEST_BIN)

@@ -33,7 +33,17 @@ static void draw_dashboard(const sim_t *s, bool paused, int delay_ms, sim_pid_t 
     erase();
     int max_y, max_x;
     getmaxyx(stdscr, max_y, max_x);
-    (void)max_y;
+
+    /* Friendly resize notification if terminal is too small */
+    if (max_y < 22 || max_x < 90) {
+        attron(A_BOLD | COLOR_PAIR(COLOR_PAIR_ALERT));
+        mvprintw(max_y / 2 - 1, 2, " PRISM :: TERMINAL WINDOW TOO SMALL (%dx%d) ", max_x, max_y);
+        attroff(A_BOLD | COLOR_PAIR(COLOR_PAIR_ALERT));
+        mvprintw(max_y / 2 + 1, 2, "Please expand your terminal window to at least 95x24 for full layout.");
+        mvprintw(max_y / 2 + 3, 2, "Press [Q] to quit or resize your window.");
+        refresh();
+        return;
+    }
 
     /* Top Status Bar */
     attron(A_BOLD | COLOR_PAIR(COLOR_PAIR_HEADER));
@@ -104,25 +114,47 @@ static void draw_dashboard(const sim_t *s, bool paused, int delay_ms, sim_pid_t 
         if (p->pid == selected_proc) attroff(A_REVERSE);
     }
 
-    /* Physical Memory Frames Grid (Right side) */
+    /* Physical Memory Frames Grid & Resources (Right side) */
     int mem_x = 60;
     mvprintw(next_y, mem_x, "PHYSICAL FRAMES (%d Total | Faults: %u):", s->total_frames, s->total_page_faults);
-    mvhline(next_y + 1, mem_x, '-', 35);
+    mvhline(next_y + 1, mem_x, '-', 40);
 
     int fy = next_y + 2;
-    for (int f = 0; f < s->total_frames && f < 16; f++) {
+    for (int f = 0; f < s->total_frames && f < 12; f++) {
         const frame_entry_t *fr = &s->frames[f];
-        int col = mem_x + (f % 4) * 11;
-        int row = fy + (f / 4) * 2;
+        int col = mem_x + (f % 4) * 10;
+        int row = fy + (f / 4);
 
         if (fr->occupied && fr->owner_pid >= 0) {
             attron(COLOR_PAIR(COLOR_PAIR_FRAME));
-            mvprintw(row, col, "[F%02d:P%d:v%d]", f, fr->owner_pid, fr->vpage);
+            mvprintw(row, col, "[F%02d:P%d]", f, fr->owner_pid);
             attroff(COLOR_PAIR(COLOR_PAIR_FRAME));
         } else {
-            mvprintw(row, col, "[F%02d: --- ]", f);
+            mvprintw(row, col, "[F%02d: - ]", f);
         }
     }
+
+    int res_y = fy + (s->total_frames > 8 ? 3 : 2) + 1;
+    mvprintw(res_y, mem_x, "RESOURCES & DEADLOCK ENGINE:");
+    mvhline(res_y + 1, mem_x, '-', 40);
+    
+    if (s->deadlock_detected) {
+        attron(COLOR_PAIR(COLOR_PAIR_BLOCKED) | A_BOLD);
+        mvprintw(res_y + 2, mem_x, "[! DEADLOCK DETECTED (WFG Cycle) !]");
+        attroff(COLOR_PAIR(COLOR_PAIR_BLOCKED) | A_BOLD);
+    } else {
+        attron(COLOR_PAIR(COLOR_PAIR_RUNNING));
+        mvprintw(res_y + 2, mem_x, "[Status: Healthy (Acyclic WFG)]");
+        attroff(COLOR_PAIR(COLOR_PAIR_RUNNING));
+    }
+
+    int r_row = res_y + 3;
+    for (int r = 0; r < s->num_resources && r < 4; r++, r_row++) {
+        mvprintw(r_row, mem_x, "R%d (%s): %d/%d avail | Held by P%d",
+                 r, s->resources[r].name, s->resources[r].available_instances, s->resources[r].total_instances,
+                 s->resources[r].owner_pid);
+    }
+    mvprintw(r_row, mem_x, "IPC Queue: %d pending messages", s->ipc_msg_count);
 
     /* Event Log (Bottom panel) */
     int log_y = max_y - 7;

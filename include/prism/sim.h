@@ -42,9 +42,46 @@ typedef struct sim {
     uint32_t           total_page_accesses;
     uint32_t           total_page_faults;
 
+    /* Resource Manager Subsystem */
+    int32_t            num_resources;
+    struct {
+        char           name[PRISM_MAX_NAME_LEN];
+        int32_t        total_instances;
+        int32_t        available_instances;
+        sim_pid_t      owner_pid;           /* for exclusive/mutex, or -1 */
+        uint64_t       allocated_mask;      /* which PIDs hold it */
+    } resources[PRISM_MAX_RESOURCES];
+
+    /* IPC Message Queue Subsystem */
+    int32_t            ipc_msg_count;
+    struct {
+        sim_pid_t      sender_pid;
+        sim_pid_t      receiver_pid;
+        int16_t        message_id;
+        int16_t        data;
+        tick_t         timestamp;
+    } ipc_messages[PRISM_MAX_MSG_QUEUE];
+
+    /* Deadlock Engine */
+    bool               deadlock_detected;
+    sim_pid_t          deadlock_cycle[PRISM_MAX_PROCESSES];
+    int32_t            deadlock_cycle_len;
+
+    /* Per-Process Checkpoint Records */
+    struct {
+        bool           valid;
+        sim_pid_t      pid;
+        uint32_t       checkpoint_id;
+        tick_t         saved_tick;
+        pcb_t          saved_pcb;
+    } checkpoints[PRISM_MAX_CHECKPOINTS];
+    uint32_t           total_checkpoints;
+
     /* Aggregate Statistics */
     uint32_t           completed_processes;
     uint32_t           total_context_switches;
+    uint32_t           total_deadlocks_detected;
+    uint32_t           total_deadlocks_recovered;
 
     /* Deterministic Event Log & Hash */
     sim_event_t        event_log[PRISM_MAX_EVENT_LOG];
@@ -88,8 +125,27 @@ static inline void sim_restore(sim_t *dst, const sim_t *src) {
     *dst = *src;
 }
 
-/* Fault injection */
+/* Resource Manager API */
+int32_t sim_add_resource(sim_t *s, const char *name, int32_t instances);
+bool sim_acquire_resource(sim_t *s, sim_pid_t pid, int32_t resource_id);
+bool sim_release_resource(sim_t *s, sim_pid_t pid, int32_t resource_id);
+
+/* Deadlock Detection & Recovery API */
+bool sim_detect_deadlock(sim_t *s);
+bool sim_recover_deadlock_terminate(sim_t *s);
+bool sim_recover_deadlock_rollback(sim_t *s);
+
+/* IPC Message Queue API */
+bool sim_ipc_send(sim_t *s, sim_pid_t sender, sim_pid_t receiver, int16_t msg_id, int16_t data);
+bool sim_ipc_recv(sim_t *s, sim_pid_t receiver, sim_pid_t expected_sender, int16_t *msg_id_out, int16_t *data_out);
+
+/* Checkpoint / Restore API */
+uint32_t sim_checkpoint_create(sim_t *s, sim_pid_t pid);
+bool sim_checkpoint_restore(sim_t *s, sim_pid_t pid, uint32_t checkpoint_id);
+
+/* Fault injection API */
 bool sim_inject_kill(sim_t *s, sim_pid_t pid);
 bool sim_inject_shrink_ram(sim_t *s, int new_frames);
+bool sim_inject_resource_fail(sim_t *s, int32_t resource_id);
 
 #endif /* PRISM_SIM_H */

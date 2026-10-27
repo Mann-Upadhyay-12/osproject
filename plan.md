@@ -71,11 +71,11 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 ---
 
 ## Extensions (Ranked in order)
-1. **Resource manager + deadlock detection** — resource types, request/release, wait-for graph, detection + recovery (kill/rollback). Natural fit: processes gain `acquire R` / `release R` bursts.
-2. **Fault injection** — random process crash / page corruption / I/O failure with a seed (basic process kill & RAM shrink implemented).
-3. **IPC + sync** — message queue and semaphore, producer-consumer workload.
-4. **Checkpoint/restore** of `struct sim` (flat snapshot already built, disk serialization).
-5. **GUI Frontend** (Web / graphical interface after core test validation).
+- [x] **Extension 1: Resource manager + deadlock detection** — multi-resource tracking, mutual exclusion, Wait-For Graph (WFG) cycle detection, automatic Checkpoint Rollback recovery (`sim_add_resource`, `sim_acquire_resource`, `sim_release_resource`, `sim_detect_deadlock`, `sim_recover_deadlock_rollback`).
+- [x] **Extension 2: Fault injection** — dynamic process crash/kill (`sim_kill_process`), dynamic physical memory shrink fault (`sim_shrink_frames`).
+- [x] **Extension 3: IPC + sync** — deterministic mailbox message queues (`sim_ipc_send`, `sim_ipc_recv`), blocking wait-for-message states (`PROC_BLOCKED_IPC`), synchronous wakeups on message arrival.
+- [x] **Extension 4: Checkpoint / Restore** — per-process snapshot slots (`sim_checkpoint_create`, `sim_checkpoint_restore`) + full simulation state serialization & rewind.
+- [ ] **Extension 5: GUI Frontend** — Graphical desktop/web dashboard (deferred to final stage after CLI/TUI and core validation).
 
 ## Weekly checkpoint
 End of each week: milestone checkboxes ticked, `make test` green, one new demo-able thing you can show.

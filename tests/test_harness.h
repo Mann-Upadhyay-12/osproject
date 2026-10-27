@@ -34,6 +34,14 @@ static int g_tests_failed = 0;
         } \
     } while(0)
 
+#define ASSERT_FALSE(cond) \
+    do { \
+        if (cond) { \
+            TEST_FAIL("Assertion failed: !(%s) at %s:%d", #cond, __FILE__, __LINE__); \
+            return; \
+        } \
+    } while(0)
+
 #define ASSERT_EQ(a, b) \
     do { \
         long long _a = (long long)(a); \

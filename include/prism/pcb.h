@@ -52,7 +52,15 @@ typedef struct {
     uint16_t           io_remaining;
     uint16_t           fault_remaining;
     uint16_t           fault_vpage;
-    
+    int16_t            waiting_resource;    /* resource_id waiting on, or -1 */
+    int16_t            waiting_ipc_pid;     /* waiting for message from pid, or -1 */
+
+    /* Resource holdings bitmask */
+    uint16_t           held_resources_mask;
+
+    /* Checkpoint records count */
+    uint16_t           num_checkpoints;
+
     /* Intrusive index-based queue links (for flat queues) */
     int16_t            next_proc;
 } pcb_t;
