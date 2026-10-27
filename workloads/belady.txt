@@ -1,0 +1,10 @@
+# Belady's Anomaly Reference String
+# 1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5
+# For FIFO: 3 frames gives 9 faults, 4 frames gives 10 faults!
+cores 1
+frames 3
+disk_latency 2
+sched fcfs
+repl fifo
+
+proc Belady arrival=0 bursts=C12 pages=1,2,3,4,1,2,5,1,2,3,4,5

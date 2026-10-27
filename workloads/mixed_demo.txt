@@ -1,0 +1,11 @@
+# Mixed demo workload
+cores 2
+frames 6
+disk_latency 3
+sched mlfq
+repl lru
+
+proc CPU_Heavy arrival=0 bursts=C15,I2,C10 pages=loop:0:3:4
+proc IO_Worker arrival=1 bursts=C3,I6,C2,I8,C4 pages=0,1,0,1,0,1
+proc Interactive arrival=2 bursts=C4,I2,C4,I2,C4 pages=seq:0:5
+proc Memory_Hog arrival=3 bursts=C16 pages=0,1,2,3,4,5,6,7,0,1,2,3

@@ -1,0 +1,9 @@
+# Textbook Scheduling Case
+cores 1
+sched rr
+quantum 4
+
+proc P1 arrival=0 bursts=C8
+proc P2 arrival=1 bursts=C4
+proc P3 arrival=2 bursts=C9
+proc P4 arrival=3 bursts=C5

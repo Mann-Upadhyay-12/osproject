@@ -1,0 +1,10 @@
+# Classic Page Replacement Reference String
+# 7, 0, 1, 2, 0, 3, 0, 4, 2, 3, 0, 3, 2, 1, 2, 0, 1, 7, 0, 1
+# Expected faults for 3 frames: FIFO=15, LRU=12, OPT=9
+cores 1
+frames 3
+disk_latency 2
+sched fcfs
+repl fifo
+
+proc VMProc arrival=0 bursts=C20 pages=7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1
