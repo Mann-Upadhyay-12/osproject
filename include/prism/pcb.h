@@ -21,7 +21,8 @@ typedef struct {
     tick_t             arrival_tick;
     int64_t            start_tick;          /* -1 until first dispatch */
     int64_t            finish_tick;         /* -1 until termination */
-    uint16_t           priority;            /* 0 is highest */
+    uint16_t           priority;            /* 0 is highest; schedulers (MLFQ) mutate it */
+    uint16_t           base_priority;       /* priority from the scenario; restored by sim_reset */
     uint16_t           quantum_remaining;
     int16_t            assigned_core;       /* -1 if not running */
     uint64_t           vruntime;            /* CFS virtual runtime (fixed-point or scaled) */

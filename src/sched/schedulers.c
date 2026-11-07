@@ -2,6 +2,7 @@
 #include "prism/sim.h"
 #include <assert.h>
 #include <stddef.h>
+#include <ctype.h>
 
 /* =========================================================================
  * 1. First-Come First-Served (FCFS)
@@ -34,6 +35,7 @@ static void fcfs_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_fcfs = {
     .policy    = SCHED_FCFS,
     .name      = "FCFS",
+    .key       = "fcfs",
     .init      = fcfs_init,
     .on_ready  = fcfs_on_ready,
     .pick_next = fcfs_pick_next,
@@ -92,6 +94,7 @@ static void rr_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_rr = {
     .policy    = SCHED_RR,
     .name      = "RoundRobin",
+    .key       = "rr",
     .init      = rr_init,
     .on_ready  = rr_on_ready,
     .pick_next = rr_pick_next,
@@ -188,6 +191,7 @@ static void mlfq_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_mlfq = {
     .policy    = SCHED_MLFQ,
     .name      = "MLFQ",
+    .key       = "mlfq",
     .init      = mlfq_init,
     .on_ready  = mlfq_on_ready,
     .pick_next = mlfq_pick_next,
@@ -269,6 +273,7 @@ static void adaptive_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_adaptive = {
     .policy    = SCHED_ADAPTIVE,
     .name      = "Adaptive",
+    .key       = "adaptive",
     .init      = adaptive_init,
     .on_ready  = adaptive_on_ready,
     .pick_next = adaptive_pick_next,
@@ -346,6 +351,7 @@ static void sjf_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_sjf = {
     .policy    = SCHED_SJF,
     .name      = "SJF",
+    .key       = "sjf",
     .init      = sjf_init,
     .on_ready  = sjf_on_ready,
     .pick_next = sjf_pick_next,
@@ -443,6 +449,7 @@ static void srtf_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_srtf = {
     .policy    = SCHED_SRTF,
     .name      = "SRTF",
+    .key       = "srtf",
     .init      = srtf_init,
     .on_ready  = srtf_on_ready,
     .pick_next = srtf_pick_next,
@@ -544,6 +551,7 @@ static void cfs_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_cfs = {
     .policy    = SCHED_CFS,
     .name      = "CFS",
+    .key       = "cfs",
     .init      = cfs_init,
     .on_ready  = cfs_on_ready,
     .pick_next = cfs_pick_next,
@@ -626,6 +634,7 @@ static void bfs_on_block(sim_t *s, sim_pid_t pid) {
 static const sched_ops_t g_sched_bfs = {
     .policy    = SCHED_BFS,
     .name      = "BFS",
+    .key       = "bfs",
     .init      = bfs_init,
     .on_ready  = bfs_on_ready,
     .pick_next = bfs_pick_next,
@@ -648,4 +657,24 @@ const sched_ops_t *sched_get_ops(sched_policy_t policy) {
         case SCHED_BFS:      return &g_sched_bfs;
         default:             return &g_sched_fcfs;
     }
+}
+
+static bool name_eq(const char *a, const char *b) {
+    if (!a || !b) return false;
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+        a++; b++;
+    }
+    return *a == *b;
+}
+
+bool sched_lookup(const char *name, sched_policy_t *out) {
+    for (int i = 0; i < SCHED_COUNT; i++) {
+        const sched_ops_t *ops = sched_get_ops((sched_policy_t)i);
+        if (name_eq(name, ops->key) || name_eq(name, ops->name)) {
+            if (out) *out = ops->policy;
+            return true;
+        }
+    }
+    return false;
 }

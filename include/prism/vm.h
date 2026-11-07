@@ -18,6 +18,7 @@ struct sim;
 typedef struct repl_ops {
     repl_policy_t policy;
     const char   *name;
+    const char   *key;      /* short CLI/file name, e.g. "lru" */
     void (*init)(struct sim *s);
     void (*on_load)(struct sim *s, sim_pid_t pid, uint16_t vpage, int frame_idx);
     void (*on_access)(struct sim *s, sim_pid_t pid, uint16_t vpage, int frame_idx);
@@ -25,5 +26,8 @@ typedef struct repl_ops {
 } repl_ops_t;
 
 const repl_ops_t *repl_get_ops(repl_policy_t policy);
+
+/* Resolve a replacement policy by key or display name (case-insensitive). */
+bool repl_lookup(const char *name, repl_policy_t *out);
 
 #endif /* PRISM_VM_H */

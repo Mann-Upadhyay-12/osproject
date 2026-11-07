@@ -2,6 +2,7 @@
 #include "prism/sim.h"
 #include <limits.h>
 #include <assert.h>
+#include <ctype.h>
 
 /* =========================================================================
  * 1. FIFO (First-In, First-Out)
@@ -42,6 +43,7 @@ static int fifo_pick_victim(sim_t *s) {
 static const repl_ops_t g_repl_fifo = {
     .policy      = REPL_FIFO,
     .name        = "FIFO",
+    .key         = "fifo",
     .init        = fifo_init,
     .on_load     = fifo_on_load,
     .on_access   = fifo_on_access,
@@ -87,6 +89,7 @@ static int lru_pick_victim(sim_t *s) {
 static const repl_ops_t g_repl_lru = {
     .policy      = REPL_LRU,
     .name        = "LRU",
+    .key         = "lru",
     .init        = lru_init,
     .on_load     = lru_on_load,
     .on_access   = lru_on_access,
@@ -136,6 +139,7 @@ static int clock_pick_victim(sim_t *s) {
 static const repl_ops_t g_repl_clock = {
     .policy      = REPL_CLOCK,
     .name        = "Clock",
+    .key         = "clock",
     .init        = clock_init,
     .on_load     = clock_on_load,
     .on_access   = clock_on_access,
@@ -199,6 +203,7 @@ static int opt_pick_victim(sim_t *s) {
 static const repl_ops_t g_repl_opt = {
     .policy      = REPL_OPT,
     .name        = "Optimal",
+    .key         = "opt",
     .init        = opt_init,
     .on_load     = opt_on_load,
     .on_access   = opt_on_access,
@@ -216,4 +221,24 @@ const repl_ops_t *repl_get_ops(repl_policy_t policy) {
         case REPL_OPT:   return &g_repl_opt;
         default:         return &g_repl_fifo;
     }
+}
+
+static bool name_eq(const char *a, const char *b) {
+    if (!a || !b) return false;
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+        a++; b++;
+    }
+    return *a == *b;
+}
+
+bool repl_lookup(const char *name, repl_policy_t *out) {
+    for (int i = 0; i < REPL_COUNT; i++) {
+        const repl_ops_t *ops = repl_get_ops((repl_policy_t)i);
+        if (name_eq(name, ops->key) || name_eq(name, ops->name)) {
+            if (out) *out = ops->policy;
+            return true;
+        }
+    }
+    return false;
 }

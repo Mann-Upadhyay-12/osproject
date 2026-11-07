@@ -66,7 +66,40 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Flat memory snapshot & rewind verified
 - [x] Extended test coverage for new schedulers (SJF, SRTF, CFS, BFS)
 - [x] Documentation & workload guide updates in README.md
-- [ ] GUI Development (Deferred to the very end after all testing is complete)
+- [ ] GUI Development → see Milestones 7–11 below and `GUI_PLAN.md`
+
+---
+
+## Milestone 7 — Interactive core API (see `GUI_PLAN.md` §3)
+- [x] `sim_api.[ch]`: `proc_spec_t`, spawn (arrives now) / remove (holes, pids never reused) / update, `sim_reset`, live `sim_set_sched` / `sim_set_repl`, `sim_set_frames`, `sim_run_until`, `sim_step_event`
+- [x] `libprism.a` holds the whole core; `make test` builds and runs every `tests/test_*.c`; header dependency tracking in Makefile
+- [x] Observer (`sim_set_observer`) fires for every trace event in trace order, survives reset/load, never affects the hash
+- [x] Scenario save/load with inline `layout` lines (`scenario.[ch]`); old workload files still load; saved files still run in `prism-cli`
+- [x] `tests/test_api.c` (11 tests) green; `make debug` clean
+- [ ] (optional) TUI reworked to use the observer
+
+**Status:** Completed.
+
+## Milestone 8 — GUI shell
+- [ ] raylib window, toolbar, palette, canvas with pan/zoom/grid
+- [ ] Place/drag/delete nodes; auto links; validation messages
+- [ ] Inspector shows selected node fields (read-only first)
+
+## Milestone 9 — Process builder & editing
+- [ ] Builder dialog with burst editor + validation; edit existing process
+- [ ] Scheduler/Memory/CPU/Disk node controls wired to `sim_set_*`
+- [ ] Save/Load buttons; Random + Templates
+
+## Milestone 10 — Run mode & animation
+- [ ] Run/pause/step/speed; reset
+- [ ] Token animation along links from observer events; memory grid updates + evict flash
+- [ ] Event List, Gantt strip, Metrics panels
+- [ ] **Inject process mid-run**
+
+## Milestone 11 — Polish & demo
+- [ ] Clean `make debug` run, no leaks; determinism test through the API
+- [ ] Preset scenarios menu (basic, thrash, belady, starvation)
+- [ ] Screenshot/GIF for report; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
 
 ---
 
@@ -75,7 +108,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] **Extension 2: Fault injection** — dynamic process crash/kill (`sim_kill_process`), dynamic physical memory shrink fault (`sim_shrink_frames`).
 - [x] **Extension 3: IPC + sync** — deterministic mailbox message queues (`sim_ipc_send`, `sim_ipc_recv`), blocking wait-for-message states (`PROC_BLOCKED_IPC`), synchronous wakeups on message arrival.
 - [x] **Extension 4: Checkpoint / Restore** — per-process snapshot slots (`sim_checkpoint_create`, `sim_checkpoint_restore`) + full simulation state serialization & rewind.
-- [ ] **Extension 5: GUI Frontend** — Graphical desktop/web dashboard (deferred to final stage after CLI/TUI and core validation).
+- [ ] **Extension 5: GUI Frontend** — now Milestones 8–11 (`GUI_PLAN.md`).
 
 ## Weekly checkpoint
 End of each week: milestone checkboxes ticked, `make test` green, one new demo-able thing you can show.

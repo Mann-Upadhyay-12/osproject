@@ -14,6 +14,7 @@ void sim_init(sim_t *s, int num_cores, int num_frames, int disk_latency,
     s->prng_state = seed ? seed : 0x123456789abcdefULL;
     s->num_cores = (num_cores > 0 && num_cores <= PRISM_MAX_CORES) ? num_cores : 1;
     s->total_frames = (num_frames > 0 && num_frames <= PRISM_MAX_FRAMES) ? num_frames : 4;
+    s->configured_frames = s->total_frames;
     s->disk_latency = (disk_latency > 0) ? disk_latency : 5;
     s->sched_policy = sched;
     s->repl_policy = repl;
@@ -186,11 +187,13 @@ void sim_log_event(sim_t *s, event_type_t type, sim_pid_t pid, int core, int d1,
         s->event_log[s->event_count++] = ev;
     }
     s->log_hash = fnv1a_update(s->log_hash, &ev, sizeof(ev));
+    if (type != EVENT_PAGE_ACCESS) s->notable_events++;
+    if (s->observer) s->observer(&ev, s->observer_user);
 }
 
 bool sim_is_done(const sim_t *s) {
     if (s->num_processes == 0) return true;
-    return s->completed_processes >= (uint32_t)s->num_processes;
+    return s->completed_processes + s->num_removed >= (uint32_t)s->num_processes;
 }
 
 const char *event_type_str(event_type_t type) {
@@ -235,6 +238,16 @@ const char *proc_state_str(proc_state_t st) {
         case PROC_BLOCKED_IPC:      return "BLOCK_IPC";
         case PROC_TERMINATED:       return "TERM";
         default:                    return "UNUSED";
+    }
+}
+
+/* Free every frame owned by pid so dead processes never pin memory. */
+void sim_release_frames(sim_t *s, sim_pid_t pid) {
+    for (int f = 0; f < s->total_frames; f++) {
+        if (s->frames[f].occupied && s->frames[f].owner_pid == pid) {
+            s->frames[f].occupied = false;
+            s->frames[f].owner_pid = -1;
+        }
     }
 }
 
@@ -317,6 +330,7 @@ bool sim_step(sim_t *s) {
                     p->state = PROC_TERMINATED;
                     p->finish_tick = (int64_t)s->tick;
                     s->completed_processes++;
+                    sim_release_frames(s, p->pid);
                     sim_log_event(s, EVENT_PROC_TERMINATE, p->pid, -1, 0, 0);
                 } else {
                     p->state = PROC_READY;

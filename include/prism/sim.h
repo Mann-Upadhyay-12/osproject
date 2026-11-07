@@ -8,6 +8,14 @@
 
 #define PRISM_MLFQ_QUEUES 3
 
+/*
+ * Observer: called synchronously for every event appended to the trace, in
+ * trace order, even after event_log is full. Frontends (TUI/GUI) use it to
+ * drive the event list and animations without polling. It must not mutate
+ * the simulation; it is a view of the trace and never feeds back.
+ */
+typedef void (*sim_observer_fn)(const sim_event_t *ev, void *user);
+
 typedef struct sim {
     tick_t             tick;
     uint64_t           seed;
@@ -36,6 +44,7 @@ typedef struct sim {
 
     /* Virtual Memory Subsystem */
     int32_t            total_frames;
+    int32_t            configured_frames;   /* frames in the scenario; total_frames may shrink by fault injection */
     int32_t            disk_latency;
     int32_t            clock_hand;
     frame_entry_t      frames[PRISM_MAX_FRAMES];
@@ -79,6 +88,7 @@ typedef struct sim {
 
     /* Aggregate Statistics */
     uint32_t           completed_processes;
+    uint32_t           num_removed;         /* pids removed via sim_remove_process (holes, never reused) */
     uint32_t           total_context_switches;
     uint32_t           total_deadlocks_detected;
     uint32_t           total_deadlocks_recovered;
@@ -87,6 +97,11 @@ typedef struct sim {
     sim_event_t        event_log[PRISM_MAX_EVENT_LOG];
     uint32_t           event_count;
     uint64_t           log_hash;
+    uint64_t           notable_events;      /* every event except PAGE_ACCESS; drives sim_step_event */
+
+    /* Frontend observer (not part of the deterministic state) */
+    sim_observer_fn    observer;
+    void              *observer_user;
 
     /* Timeline / Gantt history for visualization */
     sim_pid_t          gantt_history[PRISM_GANTT_HISTORY][PRISM_MAX_CORES];
@@ -105,6 +120,7 @@ void sim_run(sim_t *s);
 sim_pid_t sim_add_process(sim_t *s, const char *name, tick_t arrival_tick);
 bool sim_add_burst(sim_t *s, sim_pid_t pid, burst_kind_t kind, uint16_t duration);
 bool sim_add_page_ref(sim_t *s, sim_pid_t pid, uint16_t vpage);
+void sim_release_frames(sim_t *s, sim_pid_t pid);
 
 /* Ready Queue helpers (flat index-based) */
 void sim_queue_push(sim_t *s, int queue_idx, sim_pid_t pid);
@@ -121,6 +137,9 @@ static inline void sim_snapshot(const sim_t *src, sim_t *dst) {
     *dst = *src;
 }
 
+/* The observer pointer travels with the snapshot (dst may be uninitialised),
+ * so restore a snapshot only into the session that took it, or call
+ * sim_set_observer() afterwards. */
 static inline void sim_restore(sim_t *dst, const sim_t *src) {
     *dst = *src;
 }

@@ -202,6 +202,26 @@ Demonstrates that a simulation can be snapshotted at tick 15, run to completion,
 
 ---
 
+## Interactive API & Scenario Files
+
+Frontends drive the simulator through `include/prism/sim_api.h` rather than editing `sim_t` directly:
+
+- `sim_spawn_process()` builds a process from a `proc_spec_t` (bursts + page references). Called mid-run, the process **arrives now**.
+- `sim_remove_process()` / `sim_update_process()`, `sim_reset()` (rewind to tick 0, keep the scenario).
+- `sim_set_sched()` / `sim_set_repl()` switch policies live; `sim_set_frames()` resets.
+- `sim_step_event()` advances to the next notable event; `sim_set_observer()` streams every trace event to the UI.
+
+Scenario files use the workload format plus optional `priority=` keys and GUI layout lines. Older tools ignore both, so a saved scenario still runs in `prism-cli`:
+
+```
+sched rr
+quantum 4
+proc Editor arrival=0 priority=1 bursts=C8,I3,C4 pages=loop:0:5:2
+layout node=cpu x=640 y=200
+```
+
+See `GUI_PLAN.md` for the planned "Packet Tracer for processes" GUI (Milestones 8–11).
+
 ## Interactive Dashboard (`prism-tui`)
 
 Launch the visual dashboard:
