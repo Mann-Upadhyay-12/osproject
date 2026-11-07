@@ -68,6 +68,10 @@ void sim_reset(sim_t *s);
 int  sim_set_sched(sim_t *s, const char *name, int quantum);
 int  sim_set_repl(sim_t *s, const char *name);
 int  sim_set_frames(sim_t *s, int nframes);
+/* Core count changes always reset (running processes are bound to cores). */
+int  sim_set_cores(sim_t *s, int ncores);
+/* Applies live: only faults raised after the call use the new latency. */
+int  sim_set_disk_latency(sim_t *s, int ticks);
 
 /* Execution. Both return true while the simulation is not finished. */
 bool sim_run_until(sim_t *s, tick_t t);

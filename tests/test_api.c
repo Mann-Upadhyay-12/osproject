@@ -341,6 +341,35 @@ static void test_set_frames(void) {
     TEST_PASS();
 }
 
+static void test_cores_latency(void) {
+    TEST_CASE("set_cores resets; set_disk_latency applies live");
+    build_base(&g_a, SCHED_RR);
+    sim_run_until(&g_a, 4);
+    ASSERT_EQ(sim_set_cores(&g_a, 0), SIM_ERR_INVALID);
+    ASSERT_EQ(sim_set_cores(&g_a, PRISM_MAX_CORES + 1), SIM_ERR_INVALID);
+    ASSERT_EQ(sim_set_cores(&g_a, 2), SIM_OK);
+    ASSERT_EQ(g_a.tick, 0);
+    ASSERT_EQ(g_a.num_cores, 2);
+    sim_run(&g_a);
+    tick_t two_cores = g_a.tick;
+    ASSERT_EQ(sim_set_cores(&g_a, 1), SIM_OK);
+    sim_run(&g_a);
+    ASSERT_TRUE(two_cores < g_a.tick);
+
+    ASSERT_EQ(sim_set_disk_latency(&g_a, 0), SIM_ERR_INVALID);
+    sim_reset(&g_a);
+    sim_run(&g_a);
+    tick_t lat3 = g_a.tick;
+    sim_reset(&g_a);
+    ASSERT_EQ(sim_set_disk_latency(&g_a, 9), SIM_OK);
+    ASSERT_EQ(g_a.tick, 0);                    /* no reset */
+    sim_run(&g_a);
+    ASSERT_TRUE(g_a.tick > lat3);
+    sim_reset(&g_a);
+    ASSERT_EQ(g_a.disk_latency, 9);            /* survives reset */
+    TEST_PASS();
+}
+
 static void test_scenario_roundtrip(void) {
     TEST_CASE("Scenario save/load round-trips script, config and layout");
     char path[300];
@@ -444,6 +473,7 @@ int main(int argc, char **argv) {
     test_step_event();
     test_policy_switch();
     test_set_frames();
+    test_cores_latency();
     test_scenario_roundtrip();
     test_old_workloads_load();
 

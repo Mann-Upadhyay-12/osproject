@@ -242,6 +242,19 @@ int sim_set_frames(sim_t *s, int nframes) {
     return SIM_OK;
 }
 
+int sim_set_cores(sim_t *s, int ncores) {
+    if (ncores < 1 || ncores > PRISM_MAX_CORES) return SIM_ERR_INVALID;
+    s->num_cores = ncores;
+    sim_reset(s);
+    return SIM_OK;
+}
+
+int sim_set_disk_latency(sim_t *s, int ticks) {
+    if (ticks < 1 || ticks > UINT16_MAX) return SIM_ERR_INVALID;
+    s->disk_latency = ticks;
+    return SIM_OK;
+}
+
 /* ------------------------------------------------------------------------
  * Execution
  * ------------------------------------------------------------------------ */
