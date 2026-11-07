@@ -23,8 +23,11 @@ make debug      # clean, -O0 -g with ASan + UBSan, runs all tests
 make clean
 ./prism-cli --workload workloads/mixed_demo.txt
 ./prism-tui workloads/mixed_demo.txt
+make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checkout>)
+./prism-gui workloads/mixed_demo.txt
+./prism-gui workloads/mixed_demo.txt --ticks 20 --select memory --shot out.png   # headless smoke test (Xvfb)
 ```
-`make gui` (raylib, `prism-gui`) arrives in Milestone 8.
+
 
 ## Code layout (actual)
 | Path | Responsibility |
@@ -38,6 +41,7 @@ make clean
 | `src/vm/replacement.c` | FIFO/LRU/Clock/OPT behind `repl_ops_t` (registry + `repl_lookup`) |
 | `src/cli/main.c`, `src/ui/tui.c` | Frontends |
 | `tests/test_prism.c`, `tests/test_api.c` | Core suite, interactive API suite |
+| `gui/` | raylib GUI: `main_gui.c` (loop, modes, keys, file I/O), `canvas.c` (nodes, links, pan/zoom, hit-test), `anim.c` (observer → tokens), `panels.c` (toolbar, palette, event list, timeline, metrics, context menu), `inspector.c`, `builder.c` (process builder), `widgets.c` (own immediate-mode widgets) |
 
 ### Where the code differs from architecture.md (it is the original design; the code wins)
 - Engine is **tick-stepped** (`sim_step` = one tick), not a min-heap of events; there is no `EV_ARRIVAL` — arrivals are admitted in phase 1 when `arrival_tick <= tick`.
@@ -64,7 +68,7 @@ make clean
 ## Decision log
 - Dashboard is a terminal UI (ncurses) so the whole project stays in C.
 - Page faults block the faulting process for `disk_latency` ticks, which is how scheduling and virtual memory interact.
-- **GUI library: raylib + raygui** (C, small, static-linkable); fallback SDL2 + SDL_ttf. Core stays library-free; only `gui/` links raylib. `make` builds core + CLI + TUI, `make gui` builds `prism-gui`. If GUI libraries are not allowed, the TUI gets a command line instead (GUI_PLAN §8).
+- **GUI library: raylib** (C, small, static-linkable; raygui dropped, see below); fallback SDL2 + SDL_ttf. Core stays library-free; only `gui/` links raylib. `make` builds core + CLI + TUI, `make gui` builds `prism-gui`. If GUI libraries are not allowed, the TUI gets a command line instead (GUI_PLAN §8).
 - **`sim_api` reconciled with the existing code (M7):** GUI_PLAN's `sim_add_process(proto)` is `sim_spawn_process(const proc_spec_t *)` because `sim_add_process(name, arrival)` already exists and the tests use it. `sim_step_event` steps ticks until a *notable* event (anything except `PAGE_ACCESS`); plain `sim_step` is still one tick.
 - **Observer delivers `sim_event_t` (the trace record), not a separate `obs_event` enum.** `event_type_t` already covers arrive/dispatch/preempt/block/wake/fault/evict/exit and more, and reusing it guarantees "observer order == trace order". It fires from `sim_log_event`, so it keeps working after `event_log` (8192 entries) is full. No IDLE event: idle is visible as `running_pid[c] == -1` / gantt `-1`, and logging it would fill the trace.
 - Observer pointer lives in `sim_t` (so `sim_restore` copies it along with the snapshot); it is not hashed and does not affect determinism. `sim_reset` and `scenario_load` keep it.
@@ -75,3 +79,8 @@ make clean
 - **Layout is stored inline** as `layout node=KEY x=N y=N` lines in the scenario file (no sidecar). `workload_load_file` ignores unknown keywords, so scenario files still run in `prism-cli`/`prism-tui`.
 - `scenario_load` uses `prism-cli`'s defaults (1 core, 4 frames, latency 3, RR, LRU, seed 42) so a file behaves the same in every frontend.
 - Bug fixes found during M7: a process ending on an I/O burst now frees its frames (`sim_release_frames`); page numbers ≥ 64 in workload files are rejected instead of overrunning the page table; workload line/field buffers enlarged (256 page refs fit on one line); Makefile tracks header dependencies (`-MMD`) because a stale object after a `sim_t` change segfaults.
+- **GUI (M8–M10):** own small immediate-mode widget set (`gui/widgets.c`) instead of raygui, so the only GUI dependency is raylib. raylib's scissor is not nestable, so use `ui_scissor_push/pop`, and `ui_text_clipped` truncates rather than scissoring (it also works inside `BeginMode2D`).
+- GUI system nodes exist once each and are "present" when their key is in `layout_t` (`ready`, `sched`, `cpu`, `memory`, `disk`). Process nodes are keyed by process name, so the GUI keeps names unique. Links use the fixed topology from GUI_PLAN §4; a missing node shows a validation banner and blocks Run.
+- Edit mode = tick 0. Pressing Run/Step enters Run mode; Reset (`sim_reset`) returns to Edit. In Run mode the builder *injects* (`sim_spawn_process`, arrives now). Frames and cores need a reset, so their controls are disabled while running; scheduler, replacement and disk latency apply live.
+- The GUI steps one tick at a time (its "Step" mirrors `sim_step_event`), so it can record per-tick process states for the timeline. Tokens are queued per process so same-tick transitions play back to back; above 30 ticks/s animation is off and only the views update.
+- Added `sim_set_cores` (resets) and `sim_set_disk_latency` (live) to `sim_api` for the CPU and Disk inspectors.

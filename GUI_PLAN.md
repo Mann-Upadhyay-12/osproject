@@ -2,6 +2,8 @@
 
 Adds **Milestone 7+** to `plan.md` and amends `CLAUDE.md`. Existing code (TUI, sim core, schedulers, VM) is the base.
 
+> **Status:** M7–M10 are implemented (`gui/`, `make gui`). Not built yet: undo, scrub-back, free-form wiring, dashed ghost links (a validation banner is shown instead), MLFQ level/aging editing, context-switch cost.
+>
 > **Reconciled with the code (Milestone 7, done).** The real API is in `include/prism/sim_api.h` and `include/prism/scenario.h`; differences from the sketch in §3 are recorded in `CLAUDE.md`'s decision log. In short: `sim_add_process(proto)` → `sim_spawn_process(const proc_spec_t *)`; the observer delivers `sim_event_t` / `event_type_t` instead of a new `obs_kind` enum (no IDLE event); layout lives inline in the scenario file; `struct sim` is `sim_t`, `struct pcb` prototype is `proc_spec_t`.
 
 ## 1. Goal

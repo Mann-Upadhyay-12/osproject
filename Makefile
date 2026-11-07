@@ -20,16 +20,46 @@ STATIC_LIB = $(BUILD_DIR)/libprism.a
 CLI_BIN = prism-cli
 TUI_BIN = prism-tui
 
+# GUI (raylib). Uses pkg-config when raylib is installed system-wide; or point
+# RAYLIB_DIR at a raylib source checkout built with `make -C $RAYLIB_DIR/src`.
+GUI_SRCS = $(wildcard gui/*.c)
+GUI_OBJS = $(patsubst gui/%.c, $(BUILD_DIR)/gui/%.o, $(GUI_SRCS))
+GUI_BIN  = prism-gui
+UNAME_S := $(shell uname -s)
+ifdef RAYLIB_DIR
+  RAYLIB_CFLAGS = -I$(RAYLIB_DIR)/src
+  RAYLIB_LIBS   = $(RAYLIB_DIR)/src/libraylib.a
+else
+  RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib 2>/dev/null)
+  RAYLIB_LIBS   = $(shell pkg-config --libs raylib 2>/dev/null || echo -lraylib)
+endif
+ifeq ($(UNAME_S),Darwin)
+  RAYLIB_SYS = -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio
+else ifeq ($(OS),Windows_NT)
+  RAYLIB_SYS = -lopengl32 -lgdi32 -lwinmm
+else
+  RAYLIB_SYS = -lGL -lpthread -ldl -lrt -lX11
+endif
+
 # Every tests/test_*.c becomes its own binary; `make test` runs them all.
 TEST_SRCS = $(wildcard tests/test_*.c)
 TEST_BINS = $(patsubst tests/%.c, $(BUILD_DIR)/%, $(TEST_SRCS))
 
-.PHONY: all lib cli tui clean test debug sanitize valgrind experiments help
+.PHONY: all lib cli tui gui clean test debug sanitize valgrind experiments help
 
 all: $(STATIC_LIB) $(CLI_BIN) $(TUI_BIN)
 lib: $(STATIC_LIB)
 cli: $(CLI_BIN)
 tui: $(TUI_BIN)
+
+gui: $(GUI_BIN)
+
+$(BUILD_DIR)/gui/%.o: gui/%.c | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -MMD -MP -c $< -o $@
+
+$(GUI_BIN): $(GUI_OBJS) $(STATIC_LIB)
+	$(CC) $(GUI_OBJS) $(STATIC_LIB) $(LDFLAGS) $(RAYLIB_LIBS) $(RAYLIB_SYS) -lm -o $@
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)/engine $(BUILD_DIR)/sched $(BUILD_DIR)/vm
@@ -71,16 +101,17 @@ experiments: $(CLI_BIN)
 	@./$(CLI_BIN) --all-exp
 
 clean:
-	rm -rf $(BUILD_DIR) $(CLI_BIN) $(TUI_BIN)
+	rm -rf $(BUILD_DIR) $(CLI_BIN) $(TUI_BIN) $(GUI_BIN)
 
 help:
 	@echo "Available targets:"
 	@echo "  make              - Build libprism.a, prism-cli, and prism-tui"
 	@echo "  make lib|cli|tui  - Build one piece"
+	@echo "  make gui          - Build prism-gui (needs raylib; RAYLIB_DIR=... for a source build)"
 	@echo "  make test         - Build and run every tests/test_*.c"
 	@echo "  make debug        - Clean build + tests with ASan & UBSan (alias: sanitize)"
 	@echo "  make valgrind     - Run tests under valgrind"
 	@echo "  make experiments  - Run all three core experiment benchmarks"
 	@echo "  make clean        - Remove build artifacts"
 
--include $(LIB_OBJS:.o=.d)
+-include $(LIB_OBJS:.o=.d) $(GUI_OBJS:.o=.d)

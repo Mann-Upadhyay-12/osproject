@@ -220,7 +220,32 @@ proc Editor arrival=0 priority=1 bursts=C8,I3,C4 pages=loop:0:5:2
 layout node=cpu x=640 y=200
 ```
 
-See `GUI_PLAN.md` for the planned "Packet Tracer for processes" GUI (Milestones 8–11).
+The GUI design is in `GUI_PLAN.md`.
+
+## Graphical Simulator (`prism-gui`)
+
+![prism-gui](docs/prism-gui.png)
+
+A "Packet Tracer for processes": build an OS scenario on a canvas, then run it and watch processes move through the system.
+
+- **Build:** drag *Process*, *Ready Queue*, *Scheduler*, *CPU*, *Memory* and *Disk / I-O* from the palette. The Process Builder scripts each process: name, arrival, priority, CPU/I-O bursts and page references. It also has templates (CPU-bound, I/O-bound, interactive, memory hog) and a seeded Random option.
+- **Run:** Run/Pause (Space), Step to the next event (N), single tick (T), speed slider, Reset (R). Each transition becomes a token travelling along the links. Memory frames flash on load (green) and eviction (red).
+- **Interact while running:** inject a new process (it arrives *now*), switch the scheduler or replacement policy live, change disk latency.
+- **Inspect:** click any node for its PCB, burst progress, page table, queues, frame table and controls.
+- **Panels:** event list (click a row to select that process), per-process timeline, live metrics with a thrashing flag and the trace hash.
+- **Files:** Save/Load (Ctrl+S / Ctrl+O), presets from `workloads/`, or drag a file onto the window. Scenario files include the node layout and still run in `prism-cli`.
+
+Build it (raylib 5.x; the simulator core stays library-free):
+
+```bash
+# with raylib installed (brew install raylib / apt install libraylib-dev / vcpkg)
+make gui
+# or against a raylib source checkout
+make -C ~/raylib/src PLATFORM=PLATFORM_DESKTOP && make gui RAYLIB_DIR=~/raylib
+./prism-gui workloads/mixed_demo.txt
+```
+
+`./prism-gui FILE --ticks N --select NODE --shot out.png` renders one frame to a PNG and exits (used for screenshots and headless smoke tests under Xvfb).
 
 ## Interactive Dashboard (`prism-tui`)
 

@@ -66,7 +66,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Flat memory snapshot & rewind verified
 - [x] Extended test coverage for new schedulers (SJF, SRTF, CFS, BFS)
 - [x] Documentation & workload guide updates in README.md
-- [ ] GUI Development → see Milestones 7–11 below and `GUI_PLAN.md`
+- [x] GUI Development → Milestones 7–10 done (`prism-gui`), M11 polish open
 
 ---
 
@@ -80,26 +80,26 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 
 **Status:** Completed.
 
-## Milestone 8 — GUI shell
-- [ ] raylib window, toolbar, palette, canvas with pan/zoom/grid
-- [ ] Place/drag/delete nodes; auto links; validation messages
-- [ ] Inspector shows selected node fields (read-only first)
+## Milestone 8 — GUI shell  (done)
+- [x] raylib window, toolbar, palette, canvas with pan/zoom/grid
+- [x] Place/drag/delete nodes; auto links; validation messages
+- [x] Inspector shows selected node fields (read-only first)
 
-## Milestone 9 — Process builder & editing
-- [ ] Builder dialog with burst editor + validation; edit existing process
-- [ ] Scheduler/Memory/CPU/Disk node controls wired to `sim_set_*`
-- [ ] Save/Load buttons; Random + Templates
+## Milestone 9 — Process builder & editing  (done)
+- [x] Builder dialog with burst editor + validation; edit existing process
+- [x] Scheduler/Memory/CPU/Disk node controls wired to `sim_set_*`
+- [x] Save/Load buttons; Random + Templates
 
-## Milestone 10 — Run mode & animation
-- [ ] Run/pause/step/speed; reset
-- [ ] Token animation along links from observer events; memory grid updates + evict flash
-- [ ] Event List, Gantt strip, Metrics panels
-- [ ] **Inject process mid-run**
+## Milestone 10 — Run mode & animation  (done)
+- [x] Run/pause/step/speed; reset
+- [x] Token animation along links from observer events; memory grid updates + evict flash
+- [x] Event List, Gantt strip, Metrics panels
+- [x] **Inject process mid-run**
 
 ## Milestone 11 — Polish & demo
 - [ ] Clean `make debug` run, no leaks; determinism test through the API
-- [ ] Preset scenarios menu (basic, thrash, belady, starvation)
-- [ ] Screenshot/GIF for report; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
+- [x] Preset scenarios menu (lists `workloads/*.txt`) — [ ] add dedicated thrash / starvation presets
+- [x] Screenshot for report (`docs/prism-gui.png`, `--shot`); [ ] GIF; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
 
 ---
 
@@ -108,7 +108,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] **Extension 2: Fault injection** — dynamic process crash/kill (`sim_kill_process`), dynamic physical memory shrink fault (`sim_shrink_frames`).
 - [x] **Extension 3: IPC + sync** — deterministic mailbox message queues (`sim_ipc_send`, `sim_ipc_recv`), blocking wait-for-message states (`PROC_BLOCKED_IPC`), synchronous wakeups on message arrival.
 - [x] **Extension 4: Checkpoint / Restore** — per-process snapshot slots (`sim_checkpoint_create`, `sim_checkpoint_restore`) + full simulation state serialization & rewind.
-- [ ] **Extension 5: GUI Frontend** — now Milestones 8–11 (`GUI_PLAN.md`).
+- [x] **Extension 5: GUI Frontend** — `prism-gui` (Milestones 8–10; M11 polish open).
 
 ## Weekly checkpoint
 End of each week: milestone checkboxes ticked, `make test` green, one new demo-able thing you can show.
