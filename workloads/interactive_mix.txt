@@ -1,0 +1,14 @@
+# Interactive vs batch: two editors (short CPU bursts, frequent I/O) share
+# the CPU with two long batch jobs. Compare *response time*: FCFS/SJF make
+# the editors wait behind batch work, RR/MLFQ/CFS keep them snappy.
+cores 1
+frames 12
+disk_latency 2
+sched mlfq
+repl lru
+quantum 4
+
+proc Batch1 arrival=0 bursts=C20,I2,C15
+proc Batch2 arrival=0 bursts=C18,I2,C18
+proc Editor arrival=2 bursts=C2,I4,C2,I4,C2,I4,C2
+proc Shell arrival=3 bursts=C1,I3,C1,I3,C1,I3,C1,I3,C1

@@ -202,6 +202,66 @@ Demonstrates that a simulation can be snapshotted at tick 15, run to completion,
 
 ---
 
+## Interactive API & Scenario Files
+
+Frontends drive the simulator through `include/prism/sim_api.h` rather than editing `sim_t` directly:
+
+- `sim_spawn_process()` builds a process from a `proc_spec_t` (bursts + page references). Called mid-run, the process **arrives now**.
+- `sim_remove_process()` / `sim_update_process()`, `sim_reset()` (rewind to tick 0, keep the scenario).
+- `sim_set_sched()` / `sim_set_repl()` switch policies live; `sim_set_frames()` resets.
+- `sim_step_event()` advances to the next notable event; `sim_set_observer()` streams every trace event to the UI.
+
+Scenario files use the workload format plus optional `priority=` keys and GUI layout lines. Older tools ignore both, so a saved scenario still runs in `prism-cli`:
+
+```
+sched rr
+quantum 4
+proc Editor arrival=0 priority=1 bursts=C8,I3,C4 pages=loop:0:5:2
+layout node=cpu x=640 y=200
+```
+
+The GUI design is in `GUI_PLAN.md`.
+
+## Graphical Simulator (`prism-gui`)
+
+![prism-gui](docs/prism-gui.png)
+
+A "Packet Tracer for processes": build an OS scenario on a canvas, then run it and watch processes move through the system.
+
+- **Build:** drag *Process*, *Ready Queue*, *Scheduler*, *CPU*, *Memory* and *Disk / I-O* from the palette. The Process Builder scripts each process: name, arrival, priority, CPU/I-O bursts and page references. It also has templates (CPU-bound, I/O-bound, interactive, memory hog) and a seeded Random option.
+- **Run:** Run/Pause (Space), Step to the next event (N), single tick (T), **Back one tick (B)**, speed slider, Reset (R). Each transition becomes a token travelling along the links. Memory frames flash on load (green) and eviction (red). Clicking the Gantt chart or the state timeline jumps to that tick (the run is deterministic, so rewinding = replaying from 0).
+- **Explain:** every decision is narrated as it happens, with the reason the algorithm used: "SJF picks P2 for core 0: shortest next CPU burst (4 ticks). Still waiting: P3=9, P4=5", "RAM is full. LRU evicts page 3 of P1 from frame 2: it is the least recently used (last use t12)". The newest sentences also appear over the canvas. The Scheduler and Memory inspectors show a card for the current algorithm (rule, preemptive or not, strengths, weaknesses).
+- **Interact while running:** inject a new process (it arrives *now*), switch the scheduler or replacement policy live, change disk latency.
+- **Inspect:** click any node for its PCB, burst progress, page table, queues, frame table and controls.
+- **Panels:** Explain / Event list on the left; textbook CPU Gantt chart, per-process state timeline and the **results table** (arrival, CPU, start, finish, turnaround, waiting, response, faults, with averages) in the middle; live metrics with a thrashing flag and the trace hash on the right.
+- **Files:** Save/Load (Ctrl+S / Ctrl+O), test cases from `workloads/`, or drag a file onto the window. Scenario files include the node layout and still run in `prism-cli`. Loading a bundled test case points Save at `my_<name>.txt`, so the presets are never overwritten.
+
+### Compare view (Tab)
+
+![compare](docs/prism-compare.png)
+
+Runs the same test cases under several algorithms and puts the results side by side. Every run is a fresh copy of the test case with the same seed (`sim_prepare_variant`), so only the algorithm differs.
+
+- **CPU scheduling:** pick any of the 8 schedulers and any test cases (the current scenario plus every `workloads/*.txt`). Optional quantum override. A grouped bar chart shows one metric (avg waiting / turnaround / response, max waiting, context switches, CPU utilisation, throughput, makespan) over all test cases and names the algorithm that wins most often. The focused test case gets a full table (best value green, worst red) and **one Gantt chart per algorithm on a shared time axis**.
+- **Page replacement:** FIFO / LRU / Clock / OPT with an optional frame-count override. Shows **faults vs number of frames** for each policy (Belady's anomaly is detected and called out) and the **textbook frame table**: frame contents after every reference, faults marked F, the loaded frame in red, hits boxed in green.
+- **Open** on any row loads that test case in the Simulate view with that algorithm, ready to step through.
+
+![compare-vm](docs/prism-compare-vm.png)
+
+Bundled test cases, each with a comment saying what to look for (shown in the Compare view): `textbook_rr`, `convoy` (FCFS convoy effect), `starvation` (SJF/SRTF starve a long job), `interactive_mix` (response time: MLFQ vs FCFS), `classic_vm` (FIFO 15 / LRU 12 / OPT 9), `belady`, `locality` (LRU beats FIFO), `thrashing`, `mixed_demo`.
+
+Build it (raylib 5.x; the simulator core stays library-free):
+
+```bash
+# with raylib installed (brew install raylib / apt install libraylib-dev / vcpkg)
+make gui
+# or against a raylib source checkout
+make -C ~/raylib/src PLATFORM=PLATFORM_DESKTOP && make gui RAYLIB_DIR=~/raylib
+./prism-gui workloads/mixed_demo.txt
+```
+
+`./prism-gui FILE --ticks N --select NODE --shot out.png` renders one frame to a PNG and exits (used for screenshots and headless smoke tests under Xvfb); it prints the final tick and trace hash. Other flags: `--tab explain|events|gantt|states|table`, `--compare sched|vm` (open the Compare view), `--back N` (rewind N ticks after `--ticks`, to check that replay is exact).
+
 ## Interactive Dashboard (`prism-tui`)
 
 Launch the visual dashboard:

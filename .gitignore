@@ -1,0 +1,6 @@
+build/
+prism-cli
+prism-tui
+prism-gui
+*.o
+*.d

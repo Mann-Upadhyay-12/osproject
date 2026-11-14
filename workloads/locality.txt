@@ -1,0 +1,11 @@
+# Locality: a hot set {0,1,2} is reused while cold pages 3..8 stream past.
+# LRU keeps the hot set resident; FIFO evicts hot pages just because they
+# are old. Clock (second chance) degrades to FIFO here because every
+# resident page has its reference bit set. OPT is the lower bound.
+cores 1
+frames 4
+disk_latency 2
+sched fcfs
+repl fifo
+
+proc Loop arrival=0 bursts=C24 pages=0,1,2,3,0,1,2,4,0,1,2,5,0,1,2,6,0,1,2,7,0,1,2,8
