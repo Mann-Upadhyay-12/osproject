@@ -36,12 +36,13 @@ make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checko
 | `src/engine/sim.c` | Tick-driven main loop `sim_step()` (6 phases: arrivals, I/O, fault service, dispatch, wait accounting, execution), extensions |
 | `src/engine/sim_api.c` / `sim_api.h` | Interactive API: `proc_spec_t`, spawn/remove/update, reset, live policy switch, `sim_set_frames`, `sim_run_until`, `sim_step_event`, observer |
 | `src/engine/scenario.c` / `scenario.h` | Scenario save/load = workload format + `layout node=K x= y=` lines; `layout_t` |
+| `src/engine/metrics.c` / `metrics.h` | `sim_metrics_compute` (avg wait/turnaround/response, max wait, util, throughput, faults), `sim_prepare_variant` (rewound copy with other policies), `sim_run_bounded` |
 | `src/engine/workload.c` / `workload.h` | Workload parser (`proc NAME arrival= priority= bursts=C5,I3 pages=...`), generators |
 | `src/sched/schedulers.c` | 8 schedulers behind `sched_ops_t` (registry + `sched_lookup`) |
 | `src/vm/replacement.c` | FIFO/LRU/Clock/OPT behind `repl_ops_t` (registry + `repl_lookup`) |
 | `src/cli/main.c`, `src/ui/tui.c` | Frontends |
-| `tests/test_prism.c`, `tests/test_api.c` | Core suite, interactive API suite |
-| `gui/` | raylib GUI: `main_gui.c` (loop, modes, keys, file I/O), `canvas.c` (nodes, links, pan/zoom, hit-test), `anim.c` (observer → tokens), `panels.c` (toolbar, palette, event list, timeline, metrics, context menu), `inspector.c`, `builder.c` (process builder), `widgets.c` (own immediate-mode widgets) |
+| `tests/test_prism.c`, `tests/test_api.c`, `tests/test_metrics.c` | Core suite, interactive API suite, metrics/comparison suite (textbook answers) |
+| `gui/` | raylib GUI: `main_gui.c` (loop, views, keys, seek/rewind, file I/O), `canvas.c` (nodes, links, pan/zoom, hit-test), `anim.c` (observer → tokens), `explain.c` (narration + algorithm cards), `gantt.c` (Gantt chart, state timeline, results table), `panels.c` (toolbar, palette, tabbed bottom panes, metrics, context menu), `inspector.c`, `builder.c` (process builder), `compare.c` / `compare_view.c` / `compare.h` (Compare view: runner, charts, frame table), `widgets.c` (own immediate-mode widgets) |
 
 ### Where the code differs from architecture.md (it is the original design; the code wins)
 - Engine is **tick-stepped** (`sim_step` = one tick), not a min-heap of events; there is no `EV_ARRIVAL` — arrivals are admitted in phase 1 when `arrival_tick <= tick`.
@@ -84,3 +85,8 @@ make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checko
 - Edit mode = tick 0. Pressing Run/Step enters Run mode; Reset (`sim_reset`) returns to Edit. In Run mode the builder *injects* (`sim_spawn_process`, arrives now). Frames and cores need a reset, so their controls are disabled while running; scheduler, replacement and disk latency apply live.
 - The GUI steps one tick at a time (its "Step" mirrors `sim_step_event`), so it can record per-tick process states for the timeline. Tokens are queued per process so same-tick transitions play back to back; above 30 ticks/s animation is off and only the views update.
 - Added `sim_set_cores` (resets) and `sim_set_disk_latency` (live) to `sim_api` for the CPU and Disk inspectors.
+- **Metrics live in the core (`metrics.h`)**, not in each frontend, so the GUI's metrics panel, its Compare view and the tests use one definition. Averages are over *completed* processes; waiting = ticks in READY (equals turnaround − burst only when there is no I/O or fault time).
+- **Comparison = `sim_prepare_variant` on scratch `sim_t` copies** (copy, detach observer, `sim_reset`, apply policy/quantum/frames). Runs are synchronous and recomputed only when a setting changes (a few ms for all presets). A run that has not finished by 50 000 ticks is shown as "did not finish". The GUI keeps ≤ 4096 Gantt ticks per run.
+- **Rewind (Back / click a timeline) = reset + replay to the target tick**, not snapshots (a `sim_t` is 0.5 MB). Exact because the engine is deterministic and injected processes keep their arrival tick; live policy switches made during the run are not recorded, so the replay uses the current policies (the status line says so).
+- **Narration is generated inside the observer**, because only then is the state that justified a decision still visible (other ready processes and their SJF/SRTF/CFS/BFS keys; the victim frame's load/last-use tick before it is overwritten). It reads `sim_t` and never changes it.
+- **Bundled presets are read-only from the GUI:** loading one points Save at `my_<name>.txt` (they are reference inputs for Compare and for `tests/`).

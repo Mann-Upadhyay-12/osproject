@@ -66,7 +66,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Flat memory snapshot & rewind verified
 - [x] Extended test coverage for new schedulers (SJF, SRTF, CFS, BFS)
 - [x] Documentation & workload guide updates in README.md
-- [x] GUI Development → Milestones 7–10 done (`prism-gui`), M11 polish open
+- [x] GUI Development → Milestones 7–10 and 12 done (`prism-gui`), M11 polish mostly done
 
 ---
 
@@ -97,9 +97,17 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] **Inject process mid-run**
 
 ## Milestone 11 — Polish & demo
-- [ ] Clean `make debug` run, no leaks; determinism test through the API
-- [x] Preset scenarios menu (lists `workloads/*.txt`) — [ ] add dedicated thrash / starvation presets
-- [x] Screenshot for report (`docs/prism-gui.png`, `--shot`); [ ] GIF; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
+- [x] Clean `make debug` run, no leaks (core + GUI under ASan/UBSan); determinism test through the API (`tests/test_metrics.c`, GUI `--back`)
+- [x] Preset scenarios menu (lists `workloads/*.txt`) — [x] dedicated presets: `convoy`, `starvation`, `interactive_mix`, `thrashing`, `locality`
+- [x] Screenshots for report (`docs/prism-gui.png`, `docs/prism-compare*.png`, `--shot`); [ ] GIF; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
+
+## Milestone 12 — Compare & learn (GUI overhaul)
+- [x] Core: `metrics.[ch]` — `sim_metrics_compute` (one definition of every metric), `sim_prepare_variant` (rewound, observer-free copy with other policies / quantum / frames), `sim_run_bounded`; `tests/test_metrics.c` checks textbook answers (FCFS 8.75, SJF 7.75, SRTF 6.5, RR 11.75; FIFO 15 / LRU 12 / OPT 9; Belady 9 -> 10)
+- [x] Compare view: algorithms x test cases, metric bar chart with "best on most cases", results table, per-algorithm Gantt charts on one time axis
+- [x] Page replacement compare: faults-vs-frames curve with Belady detection, textbook frame table per policy
+- [x] Explain: per-event narration with the algorithm's reason (who else was waiting and their key), caption over the canvas, algorithm cards in the inspector
+- [x] Step back / click a timeline to rewind (deterministic replay); textbook CPU Gantt chart; per-process results table
+- [x] Fixes: Save no longer overwrites bundled presets; failed startup load no longer leaves an uninitialised sim; clicks inside bottom panels (event rows, timelines) work again
 
 ---
 
@@ -108,7 +116,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] **Extension 2: Fault injection** — dynamic process crash/kill (`sim_kill_process`), dynamic physical memory shrink fault (`sim_shrink_frames`).
 - [x] **Extension 3: IPC + sync** — deterministic mailbox message queues (`sim_ipc_send`, `sim_ipc_recv`), blocking wait-for-message states (`PROC_BLOCKED_IPC`), synchronous wakeups on message arrival.
 - [x] **Extension 4: Checkpoint / Restore** — per-process snapshot slots (`sim_checkpoint_create`, `sim_checkpoint_restore`) + full simulation state serialization & rewind.
-- [x] **Extension 5: GUI Frontend** — `prism-gui` (Milestones 8–10; M11 polish open).
+- [x] **Extension 5: GUI Frontend** — `prism-gui` (Milestones 8–10, 12 compare & explain; M11 polish: GIF + demo script open).
 
 ## Weekly checkpoint
 End of each week: milestone checkboxes ticked, `make test` green, one new demo-able thing you can show.
