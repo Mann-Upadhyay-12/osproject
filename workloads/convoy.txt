@@ -1,0 +1,16 @@
+# Convoy effect: one long CPU job arrives just before four short ones.
+# FCFS makes every short job wait behind "Long" (high average wait).
+# Non-preemptive SJF is no better: Long is alone at t=0, so it starts and
+# cannot be interrupted. SRTF / RR / MLFQ let the short jobs through.
+cores 1
+frames 8
+disk_latency 2
+sched fcfs
+repl lru
+quantum 3
+
+proc Long arrival=0 bursts=C24
+proc S1 arrival=1 bursts=C3
+proc S2 arrival=2 bursts=C3
+proc S3 arrival=3 bursts=C2
+proc S4 arrival=4 bursts=C4

@@ -1,0 +1,21 @@
+# Starvation: a steady stream of short jobs keeps the CPU busy.
+# SJF / SRTF always prefer the short jobs, so "Big" waits until the stream
+# ends (watch "max wait"). RR, MLFQ (priority boost) and CFS share fairly.
+cores 1
+frames 8
+disk_latency 2
+sched sjf
+repl lru
+quantum 3
+
+proc Big arrival=1 bursts=C12
+proc J1 arrival=0 bursts=C3
+proc J2 arrival=3 bursts=C3
+proc J3 arrival=6 bursts=C3
+proc J4 arrival=9 bursts=C3
+proc J5 arrival=12 bursts=C3
+proc J6 arrival=15 bursts=C3
+proc J7 arrival=18 bursts=C3
+proc J8 arrival=21 bursts=C3
+proc J9 arrival=24 bursts=C3
+proc J10 arrival=27 bursts=C3
