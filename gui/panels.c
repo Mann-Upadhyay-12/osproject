@@ -1,4 +1,5 @@
 #include "gui_state.h"
+#include "prism/metrics.h"
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -22,12 +23,14 @@ void panels_init(void) {
     for (int i = 0; i < REPL_COUNT; i++) g_repl_items[i] = repl_get_ops((repl_policy_t)i)->name;
 }
 
-static void start_run(gui_t *g) {
-    char msg[160];
-    if (!gui_validate(g, msg, sizeof(msg))) { gui_status(g, true, "%s", msg); return; }
-    if (sim_is_done(g->sim)) { gui_status(g, false, "Run finished. Reset (R) to replay, or inject a process."); return; }
-    g->mode = MODE_RUN;
-    g->playing = true;
+/* Simulate | Compare switch, shared by both views' toolbars. */
+static float view_tabs(gui_t *g, float x, float y, float h) {
+    if (ui_button_ex(20, (Rectangle){x, y, 84, h}, "Simulate", true, g->view == VIEW_SIM)) g->view = VIEW_SIM;
+    if (ui_button_ex(21, (Rectangle){x + 86, y, 84, h}, "Compare", true, g->view == VIEW_COMPARE)) {
+        if (g->view != VIEW_COMPARE) { g->playing = false; compare_mark_dirty(g); }
+        g->view = VIEW_COMPARE;
+    }
+    return x + 186;
 }
 
 void panel_toolbar(gui_t *g, Rectangle r) {
@@ -36,51 +39,52 @@ void panel_toolbar(gui_t *g, Rectangle r) {
     DrawLine((int)r.x, (int)(r.y + r.height - 1), (int)(r.x + r.width), (int)(r.y + r.height - 1), UI_BORDER);
     float x = r.x + 10, y = r.y + 9, h = 30;
     sim_t *s = g->sim;
+    x = view_tabs(g, x, y, h);
+    if (g->view == VIEW_COMPARE) {
+        ui_text(x, y + 6, 15, UI_TEXT_DIM, "Run the same test cases under several algorithms and compare the results side by side.");
+        return;
+    }
 
-    if (ui_button_ex(1, (Rectangle){x, y, 84, h}, g->playing ? "Pause" : "Run", true, g->playing)) {
-        if (g->playing) g->playing = false; else start_run(g);
+    if (ui_button_ex(1, (Rectangle){x, y, 70, h}, g->playing ? "Pause" : "Run", true, g->playing)) {
+        if (g->playing) g->playing = false;
+        else if (gui_start_running(g)) g->playing = true;
     }
-    x += 90;
-    if (ui_button(2, (Rectangle){x, y, 64, h}, "Step")) gui_step_event(g);
-    x += 70;
-    if (ui_button(3, (Rectangle){x, y, 56, h}, "+1 tick")) {
-        char msg[160];
-        if (gui_validate(g, msg, sizeof(msg))) { g->mode = MODE_RUN; gui_step_tick(g); } else gui_status(g, true, "%s", msg);
-    }
+    x += 74;
+    if (ui_button_ex(2, (Rectangle){x, y, 58, h}, "< Back", s->tick > 0, false)) gui_step_back(g);
     x += 62;
-    if (ui_button(4, (Rectangle){x, y, 60, h}, "Reset")) gui_enter_edit(g);
-    x += 70;
+    if (ui_button(3, (Rectangle){x, y, 64, h}, "Step >")) gui_step_event(g);
+    x += 68;
+    if (ui_button(4, (Rectangle){x, y, 56, h}, "Reset")) gui_enter_edit(g);
+    x += 64;
 
     ui_text(x, y - 2, 12, UI_TEXT_DIM, "speed %.0f ticks/s", g->speed);
-    ui_slider(5, (Rectangle){x, y + 12, 120, 18}, &g->speed, 1, 60);
-    x += 132;
+    ui_slider(5, (Rectangle){x, y + 12, 110, 18}, &g->speed, 1, 60);
+    x += 122;
     ui_text(x, y - 2, 12, UI_TEXT_DIM, "tick");
     ui_text(x, y + 11, 18, g->mode == MODE_RUN ? UI_GOOD : UI_TEXT, "%" PRIu64, (uint64_t)s->tick);
-    x += 64;
+    x += 56;
 
     int sp = (int)s->sched_policy;
     ui_text(x, y - 2, 12, UI_TEXT_DIM, "scheduler (live)");
-    if (ui_dropdown(6, (Rectangle){x, y + 11, 120, 22}, g_sched_items, SCHED_COUNT, &sp)) {
+    if (ui_dropdown(6, (Rectangle){x, y + 11, 116, 22}, g_sched_items, SCHED_COUNT, &sp)) {
         sim_set_sched(s, sched_get_ops((sched_policy_t)sp)->key, 0);
         gui_status(g, false, "Scheduler -> %s%s", g_sched_items[sp], g->mode == MODE_RUN ? " (applied live)" : "");
     }
-    x += 128;
+    x += 122;
     int rp = (int)s->repl_policy;
     ui_text(x, y - 2, 12, UI_TEXT_DIM, "replacement (live)");
-    if (ui_dropdown(7, (Rectangle){x, y + 11, 104, 22}, g_repl_items, REPL_COUNT, &rp)) {
+    if (ui_dropdown(7, (Rectangle){x, y + 11, 100, 22}, g_repl_items, REPL_COUNT, &rp)) {
         sim_set_repl(s, repl_get_ops((repl_policy_t)rp)->key);
         gui_status(g, false, "Replacement -> %s", g_repl_items[rp]);
     }
-    x += 116;
+    x += 108;
 
-    if (ui_button_ex(8, (Rectangle){x, y, 92, h}, g->mode == MODE_RUN ? "Inject proc" : "+ Process", true, false)) {
+    if (ui_button(8, (Rectangle){x, y, 92, h}, g->mode == MODE_RUN ? "Inject proc" : "+ Process")) {
         builder_open_new(g, g->mode == MODE_RUN);
     }
-    x += 98;
-    if (ui_button(9, (Rectangle){x, y, 74, h}, "Random 5")) gui_random_processes(g, 5);
-    x += 84;
+    x += 100;
 
-    ui_text(x, y - 2, 12, UI_TEXT_DIM, "preset");
+    ui_text(x, y - 2, 12, UI_TEXT_DIM, "test case");
     int ps = g->preset_sel;
     if (ui_dropdown(10, (Rectangle){x, y + 11, 130, 22}, g->preset_items, g->npresets + 1, &ps)) {
         g->preset_sel = ps;
@@ -89,13 +93,13 @@ void panel_toolbar(gui_t *g, Rectangle r) {
     }
     x += 138;
     ui_text(x, y - 2, 12, UI_TEXT_DIM, "file");
-    float fw = r.x + r.width - x - 136;
+    float fw = r.x + r.width - x - 132;
     if (fw < 80) fw = 80;
     ui_text_field(11, (Rectangle){x, y + 11, fw, 22}, g->path, sizeof(g->path));
     x += fw + 6;
-    if (ui_button(12, (Rectangle){x, y, 60, h}, "Load")) gui_load(g, g->path);
-    x += 64;
-    if (ui_button(13, (Rectangle){x, y, 60, h}, "Save")) gui_save(g, g->path);
+    if (ui_button(12, (Rectangle){x, y, 58, h}, "Load")) gui_load(g, g->path);
+    x += 62;
+    if (ui_button(13, (Rectangle){x, y, 58, h}, "Save")) gui_save(g, g->path);
 }
 
 /* ------------------------------------------------------------------------
@@ -109,7 +113,9 @@ void panel_palette(gui_t *g, Rectangle r) {
     ui_text(x, y, 12, UI_TEXT_DIM, "drag onto the canvas");
     y += 20;
     if (ui_button(100, (Rectangle){x, y, w, 34}, "Process")) g->palette_drag = NODE_PROC;
-    y += 44;
+    y += 38;
+    if (ui_button(99, (Rectangle){x, y, w, 26}, "+ 5 random")) gui_random_processes(g, 5);
+    y += 34;
     for (int k = 0; k < NODE_SYS_COUNT; k++) {
         bool present = gui_has_node(g, k);
         if (ui_button_ex(101 + k, (Rectangle){x, y, w, 30}, g_sys_titles[k], !present && g->mode == MODE_EDIT, false)) {
@@ -131,10 +137,11 @@ void panel_palette(gui_t *g, Rectangle r) {
     y += 10;
     ui_text(x, y, 13, UI_TEXT_DIM, "Keys");
     y += 18;
-    static const char *keys[] = {"Space  run / pause", "N  step event", "T  step one tick", "R  reset to edit",
-                                 "A  add / inject process", "Del  delete selected", "F  fit view",
-                                 "Ctrl+S / Ctrl+O  save/load", "wheel  zoom", "mid-drag  pan"};
-    for (int i = 0; i < 10 && y < r.y + r.height - 16; i++) {
+    static const char *keys[] = {"Space  run / pause", "N  step to next event", "T  one tick forward",
+                                 "B  one tick back", "R  reset to edit", "A  add / inject process",
+                                 "Tab  Simulate / Compare", "Del  delete selected", "F  fit view",
+                                 "Ctrl+S / Ctrl+O  save/load", "wheel zoom, mid-drag pan"};
+    for (int i = 0; i < 11 && y < r.y + r.height - 16; i++) {
         ui_text(x, y, 12, UI_TEXT_DIM, "%s", keys[i]);
         y += 16;
     }
@@ -161,7 +168,7 @@ void panel_heading(cursor_t *c, const char *t) {
  * Event list
  * ------------------------------------------------------------------------ */
 
-static Color event_color(event_type_t t) {
+Color event_color(event_type_t t) {
     switch (t) {
         case EVENT_PROC_ARRIVE:      return (Color){130, 180, 255, 255};
         case EVENT_PROC_DISPATCH:    return UI_GOOD;
@@ -198,16 +205,15 @@ static bool event_shown(const gui_t *g, const sim_event_t *e) {
     return true;
 }
 
+/* r is the pane body (below the tab strip). */
 void panel_events(gui_t *g, Rectangle r) {
-    ui_claim_rect(r);
-    ui_panel(r, "Event List");
     bool only_sel = g->ev_filter_pid >= 0;
-    ui_checkbox(500, (Rectangle){r.x + 110, r.y + 3, 120, 18}, "hide page hits", &g->hide_hits);
-    if (ui_checkbox(501, (Rectangle){r.x + 250, r.y + 3, 160, 18}, "selected process only", &only_sel)) {
+    ui_checkbox(500, (Rectangle){r.x + 8, r.y + 3, 120, 18}, "hide page hits", &g->hide_hits);
+    if (ui_checkbox(501, (Rectangle){r.x + 140, r.y + 3, 160, 18}, "selected process only", &only_sel)) {
         g->ev_filter_pid = (only_sel && g->sel.kind == NODE_PROC) ? g->sel.pid : -1;
     }
 
-    Rectangle body = {r.x + 1, r.y + 26, r.width - 2, r.height - 27};
+    Rectangle body = {r.x, r.y + 24, r.width, r.height - 24};
     const float rh = 17;
     int rows = (int)(body.height / rh);
     if (CheckCollisionPointRec(GetMousePosition(), body)) {
@@ -233,7 +239,7 @@ void panel_events(gui_t *g, Rectangle r) {
         const sim_event_t *e = &g->ev[(g->ev_start + (uint32_t)idx[k]) % GUI_EV_CAP];
         float y = body.y + body.height - (k + 1) * rh;
         Rectangle row = {body.x, y, body.width, rh};
-        bool hov = CheckCollisionPointRec(GetMousePosition(), row) && ui_input_free();
+        bool hov = CheckCollisionPointRec(GetMousePosition(), row) && ui_content_input();
         if (hov) {
             DrawRectangleRec(row, UI_PANEL_HI);
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && e->pid >= 0 && e->pid < g->sim->num_processes) {
@@ -255,48 +261,33 @@ void panel_events(gui_t *g, Rectangle r) {
     if (g->ev_scroll > 0) ui_text(r.x + r.width - 120, r.y + 4, 12, UI_WARN, "scrolled (wheel)");
 }
 
-/* ------------------------------------------------------------------------
- * Gantt strip
- * ------------------------------------------------------------------------ */
-
-void panel_gantt(gui_t *g, Rectangle r) {
+/* Tabbed pane: header strip of tabs, returns the body rect. */
+static Rectangle tab_pane(Rectangle r, int id0, const char *const *names, int n, int *tab) {
     ui_claim_rect(r);
-    ui_panel(r, "Timeline");
-    const sim_t *s = g->sim;
-    Rectangle body = {r.x + 8, r.y + 30, r.width - 16, r.height - 38};
-    float label_w = 70;
-    float plot_w = body.width - label_w;
-    int live[PRISM_MAX_PROCESSES], nl = 0;
-    for (int pid = 0; pid < s->num_processes; pid++) if (proc_live(s, pid)) live[nl++] = pid;
-    if (nl == 0) { ui_text(body.x, body.y, 14, UI_TEXT_DIM, "No processes."); return; }
-    float rh = body.height / nl;
-    if (rh > 20) rh = 20;
-    if (rh < 6) rh = 6;
-    int visible = (int)(body.height / rh);
-
-    uint32_t len = g->hist_len < GUI_HIST_TICKS ? g->hist_len : GUI_HIST_TICKS;
-    float cw = 6;
-    int span = (int)(plot_w / cw);
-    if ((int)len < span) { span = len > 0 ? (int)len : 1; cw = plot_w / (span > 40 ? span : 40); }
-    uint32_t first = g->hist_len > (uint32_t)span ? g->hist_len - (uint32_t)span : 0;
-
-    ui_scissor_push(body);
-    for (int k = 0; k < nl && k < visible; k++) {
-        int pid = live[k];
-        float y = body.y + k * rh;
-        ui_text_clipped((Rectangle){body.x, y, label_w - 6, rh}, rh > 14 ? 13 : 10, proc_color(pid), s->procs[pid].name);
-        for (uint32_t t = first; t < g->hist_len; t++) {
-            uint8_t st = g->hist[t % GUI_HIST_TICKS][pid];
-            if (st == PROC_NEW || st == PROC_UNUSED) continue;
-            Color c = state_color((proc_state_t)st);
-            if (st == PROC_TERMINATED) continue;
-            DrawRectangle((int)(body.x + label_w + (t - first) * cw), (int)y + 1, (int)cw + 1, (int)rh - 2, c);
-        }
+    ui_panel(r, NULL);
+    DrawRectangle((int)r.x, (int)r.y, (int)r.width, 26, UI_PANEL_HI);
+    float x = r.x + 4;
+    for (int i = 0; i < n; i++) {
+        float w = ui_text_width(names[i], 14) + 22;
+        if (ui_button_ex(id0 + i, (Rectangle){x, r.y + 2, w, 22}, names[i], true, *tab == i)) *tab = i;
+        x += w + 4;
     }
-    float cx = body.x + label_w + (g->hist_len - first) * cw;
-    DrawLine((int)cx, (int)body.y, (int)cx, (int)(body.y + body.height), UI_TEXT);
-    ui_scissor_pop();
-    ui_text(r.x + r.width - 150, r.y + 4, 12, UI_TEXT_DIM, "ticks %u..%u", first, g->hist_len);
+    return (Rectangle){r.x + 1, r.y + 27, r.width - 2, r.height - 28};
+}
+
+void panel_bottom_left(gui_t *g, Rectangle r) {
+    static const char *names[LTAB_COUNT] = {"Explain", "Event list"};
+    Rectangle body = tab_pane(r, 520, names, LTAB_COUNT, &g->ltab);
+    if (g->ltab == LTAB_EXPLAIN) panel_explain(g, body);
+    else panel_events(g, body);
+}
+
+void panel_bottom_mid(gui_t *g, Rectangle r) {
+    static const char *names[MTAB_COUNT] = {"CPU Gantt chart", "Process states", "Results table"};
+    Rectangle body = tab_pane(r, 530, names, MTAB_COUNT, &g->mtab);
+    if (g->mtab == MTAB_GANTT) panel_cpu_gantt(g, body);
+    else if (g->mtab == MTAB_STATES) panel_states(g, body);
+    else panel_proc_table(g, body);
 }
 
 /* ------------------------------------------------------------------------
@@ -305,24 +296,11 @@ void panel_gantt(gui_t *g, Rectangle r) {
 
 void panel_metrics(gui_t *g, Rectangle r) {
     ui_claim_rect(r);
-    ui_panel(r, "Metrics");
+    ui_panel(r, "Metrics (completed processes)");
     const sim_t *s = g->sim;
     cursor_t c = {r.x + 12, r.y + 32, r.width - 24};
-    double wait = 0, tat = 0, resp = 0;
-    int done = 0, live = 0;
-    for (int pid = 0; pid < s->num_processes; pid++) {
-        const pcb_t *p = &s->procs[pid];
-        if (p->state == PROC_UNUSED) continue;
-        live++;
-        if (p->state != PROC_TERMINATED || p->finish_tick < 0) continue;
-        done++;
-        wait += p->total_wait_time;
-        tat += (double)(p->finish_tick - (int64_t)p->arrival_tick);
-        resp += (double)(p->start_tick - (int64_t)p->arrival_tick);
-    }
-    uint64_t busy = 0;
-    for (int k = 0; k < s->num_cores; k++) busy += s->core_busy_ticks[k];
-    double util = s->tick ? 100.0 * (double)busy / ((double)s->tick * s->num_cores) : 0;
+    sim_metrics_t m;
+    sim_metrics_compute(s, &m);
 
     /* Thrashing: fault share of the most recent memory references. */
     int acc = 0, flt = 0;
@@ -333,14 +311,16 @@ void panel_metrics(gui_t *g, Rectangle r) {
     }
     bool thrash = acc >= 20 && flt * 100 / acc >= 40;
 
-    panel_kv(&c, "completed", "%d / %d", done, live);
-    panel_kv(&c, "avg waiting", done ? "%.2f" : "-", done ? wait / done : 0.0);
-    panel_kv(&c, "avg turnaround", done ? "%.2f" : "-", done ? tat / done : 0.0);
-    panel_kv(&c, "avg response", done ? "%.2f" : "-", done ? resp / done : 0.0);
-    panel_kv(&c, "CPU utilisation", "%.1f%%", util);
-    panel_kv(&c, "page faults", "%u  (%.1f%%)", s->total_page_faults,
-       s->total_page_accesses ? 100.0 * s->total_page_faults / s->total_page_accesses : 0.0);
-    panel_kv(&c, "context switches", "%u", s->total_context_switches);
+    bool d = m.completed > 0;
+    panel_kv(&c, "completed", "%d / %d", m.completed, m.processes);
+    panel_kv(&c, "avg waiting", d ? "%.2f" : "-", m.avg_wait);
+    panel_kv(&c, "avg turnaround", d ? "%.2f" : "-", m.avg_turnaround);
+    panel_kv(&c, "avg response", d ? "%.2f" : "-", m.avg_response);
+    panel_kv(&c, "max waiting", "%u", m.max_wait);
+    panel_kv(&c, "CPU utilisation", "%.1f%%", m.cpu_util);
+    panel_kv(&c, "throughput", "%.2f / 100 ticks", m.throughput);
+    panel_kv(&c, "page faults", "%u  (%.1f%%)", m.page_faults, m.fault_rate);
+    panel_kv(&c, "context switches", "%u", m.ctx_switches);
     if (thrash) {
         DrawRectangleRounded((Rectangle){c.x, c.y + 2, c.w, 22}, 0.3f, 4, ColorAlpha(UI_BAD, 0.3f));
         ui_text(c.x + 8, c.y + 5, 14, UI_BAD, "THRASHING: %d%% of recent refs fault", flt * 100 / acc);

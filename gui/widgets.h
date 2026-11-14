@@ -38,6 +38,9 @@ void  ui_push_layer(int layer);
 void  ui_pop_layer(void);
 void  ui_set_modal(int layer); /* topmost interactive layer; 0 = none */
 bool  ui_input_free(void);     /* mouse not over a widget / popup / modal */
+/* For clickable content inside a panel that claimed its rect: true unless a
+ * modal dialog or an open dropdown owns the mouse. */
+bool  ui_content_input(void);
 void  ui_claim_rect(Rectangle r); /* mark a panel area as UI-owned this frame */
 bool  ui_text_focused(void);   /* a text field has keyboard focus */
 
@@ -45,6 +48,11 @@ bool  ui_text_focused(void);   /* a text field has keyboard focus */
 void  ui_text(float x, float y, float size, Color c, const char *fmt, ...);
 float ui_text_width(const char *s, float size);
 void  ui_text_clipped(Rectangle r, float size, Color c, const char *s); /* left, v-centred, truncated with ".." */
+/* Word-wrapped paragraph; returns the height used. '\n' forces a break. */
+float ui_text_wrapped(float x, float y, float w, float size, Color c, const char *s);
+float ui_text_wrapped_height(float w, float size, const char *s);
+/* Tooltip near the mouse, drawn on top at ui_end(); last call per frame wins. */
+void  ui_tooltip(const char *fmt, ...);
 /* Nested clipping (raylib's scissor is not nestable). */
 void  ui_scissor_push(Rectangle r);
 void  ui_scissor_pop(void);

@@ -10,20 +10,6 @@ static bool proc_live(const sim_t *s, int pid) {
     return pid >= 0 && pid < s->num_processes && s->procs[pid].state != PROC_UNUSED;
 }
 
-static const char *sched_blurb(sched_policy_t p) {
-    switch (p) {
-        case SCHED_FCFS:     return "First come, first served. Non-preemptive.";
-        case SCHED_RR:       return "Round robin: preempt after each quantum.";
-        case SCHED_SJF:      return "Shortest job first (current burst). Non-preemptive.";
-        case SCHED_SRTF:     return "Shortest remaining time; preempts on arrival.";
-        case SCHED_MLFQ:     return "MLFQ: 3 levels (q=2/4/8), demotes, boost/50 ticks.";
-        case SCHED_ADAPTIVE: return "Aging + demotes processes that thrash.";
-        case SCHED_CFS:      return "Linux CFS: lowest virtual runtime runs.";
-        case SCHED_BFS:      return "Earliest virtual deadline first.";
-        default:             return "";
-    }
-}
-
 static void inspect_process(gui_t *g, int pid, cursor_t *c, Rectangle r) {
     sim_t *s = g->sim;
     const pcb_t *p = &s->procs[pid];
@@ -138,13 +124,12 @@ void panel_inspector(gui_t *g, Rectangle r) {
                 sim_set_sched(s, sched_get_ops(s->sched_policy)->key, q);
             }
             c.y += 36;
-            ui_text(c.x, c.y, 13, UI_TEXT_DIM, "%s", sched_blurb(s->sched_policy));
-            c.y += 24;
-            ui_text(c.x, c.y, 13, UI_TEXT_DIM, "Changes apply immediately, even mid-run;");
-            c.y += 16;
-            ui_text(c.x, c.y, 13, UI_TEXT_DIM, "waiting processes move to the new policy.");
-            c.y += 24;
             panel_kv(&c, "context switches", "%u", s->total_context_switches);
+            c.y += 6;
+            c.y += explain_draw_card(explain_sched_info(s->sched_policy), c.x, c.y, c.w) + 10;
+            c.y += ui_text_wrapped(c.x, c.y, c.w, 12, UI_TEXT_DIM,
+                                   "Changes apply immediately, even mid-run: waiting processes move to the new policy. "
+                                   "To see every policy on the same input, use Compare (Tab).");
             break;
         }
         case NODE_CPU: {
@@ -186,6 +171,8 @@ void panel_inspector(gui_t *g, Rectangle r) {
             panel_kv(&c, "accesses", "%u", s->total_page_accesses);
             panel_kv(&c, "faults", "%u", s->total_page_faults);
             panel_kv(&c, "fault rate", "%.1f%%", s->total_page_accesses ? 100.0 * s->total_page_faults / s->total_page_accesses : 0.0);
+            c.y += 4;
+            c.y += explain_draw_card(explain_repl_info(s->repl_policy), c.x, c.y, c.w) + 4;
             panel_heading(&c, "Frame table");
             ui_text(c.x, c.y, 12, UI_TEXT_DIM, "frame  owner          page  loaded  used");
             c.y += 16;
@@ -239,16 +226,14 @@ void panel_inspector(gui_t *g, Rectangle r) {
             panel_kv(&c, "seed", "%" PRIu64, s->seed);
             c.y += 12;
             static const char *help[] = {
-                "1. Drag a Process from the palette",
-                "   (or press A) and script its bursts.",
-                "2. Click a node to inspect / configure it.",
-                "3. Run (Space) or Step (N) to watch",
-                "   processes move through the system.",
-                "4. While running, Inject a process",
-                "   or switch policies live.",
-                "5. Reset (R) returns to edit mode.",
+                "1. Pick a test case (toolbar) or drag a Process from the palette (A) and script its bursts.",
+                "2. Click a node to inspect it: the Scheduler and Memory nodes explain their algorithm.",
+                "3. Step (N) one decision at a time and read \"What just happened\". Back (B) undoes a tick; "
+                "click the Gantt chart to jump to any tick.",
+                "4. While running, inject a process or switch policies live.",
+                "5. Compare (Tab) runs every algorithm on the same test cases side by side.",
             };
-            for (int i = 0; i < 8; i++) { ui_text(c.x, c.y, 13, UI_TEXT_DIM, "%s", help[i]); c.y += 17; }
+            for (int i = 0; i < 5; i++) c.y += ui_text_wrapped(c.x, c.y, c.w, 13, UI_TEXT_DIM, help[i]) + 6;
             break;
         }
     }

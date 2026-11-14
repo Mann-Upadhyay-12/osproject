@@ -62,7 +62,8 @@ static void add_token(gui_t *g, int pid, const int *nodes, int n, bool fault) {
 void anim_observer(const sim_event_t *ev, void *user) {
     gui_t *g = (gui_t *)user;
     push_event(g, ev);
-    if (g->anim_dur <= 0) return;   /* animations off (very fast playback) */
+    explain_event(g, ev);
+    if (g->anim_dur <= 0 || g->replaying) return;   /* animations off (fast playback / seeking) */
 
     double now = g->anim_now;
     int pid = ev->pid;

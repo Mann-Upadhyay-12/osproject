@@ -23,6 +23,7 @@ typedef struct {
     int   pop_count;
     int   pop_result_id, pop_result;
     int   active_drag;      /* slider id being dragged */
+    char  tip[256];         /* tooltip text for this frame */
 } ui_state_t;
 
 static ui_state_t U;
@@ -77,6 +78,7 @@ void ui_begin(void) {
     U.mouse_eaten = false;
     U.focus_seen = 0;
     U.pop_result_id = 0;
+    U.tip[0] = '\0';
     if (U.pop_id) {
         bool inside = CheckCollisionPointRec(GetMousePosition(), U.pop_rect);
         if (inside) U.mouse_used = true;
@@ -110,6 +112,70 @@ void ui_end(void) {
             ui_text_clipped((Rectangle){row.x + 8, row.y, row.width - 12, row.height}, 15, UI_TEXT, U.pop_items[i]);
         }
     }
+    if (U.tip[0] && !U.pop_id) {
+        Vector2 m = GetMousePosition();
+        float w = 0, h = 8;
+        char line[256];
+        const char *p = U.tip;
+        while (*p) {   /* measure each '\n'-separated line */
+            size_t n = strcspn(p, "\n");
+            snprintf(line, sizeof(line), "%.*s", (int)n, p);
+            float lw = ui_text_width(line, 14);
+            if (lw > w) w = lw;
+            h += 18;
+            p += n + (p[n] ? 1 : 0);
+        }
+        Rectangle r = {m.x + 16, m.y + 18, w + 16, h};
+        if (r.x + r.width > GetScreenWidth()) r.x = m.x - r.width - 8;
+        if (r.y + r.height > GetScreenHeight()) r.y = m.y - r.height - 8;
+        DrawRectangleRec((Rectangle){r.x + 3, r.y + 3, r.width, r.height}, (Color){0, 0, 0, 100});
+        DrawRectangleRec(r, (Color){16, 18, 23, 245});
+        DrawRectangleLinesEx(r, 1, UI_ACCENT);
+        float y = r.y + 5;
+        p = U.tip;
+        while (*p) {
+            size_t n = strcspn(p, "\n");
+            snprintf(line, sizeof(line), "%.*s", (int)n, p);
+            ui_text(r.x + 8, y, 14, UI_TEXT, "%s", line);
+            y += 18;
+            p += n + (p[n] ? 1 : 0);
+        }
+    }
+}
+
+void ui_tooltip(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(U.tip, sizeof(U.tip), fmt, ap);
+    va_end(ap);
+}
+
+static float wrap_text(float x, float y, float w, float size, Color c, const char *s, bool draw) {
+    char line[256];
+    float lh = size + 4, y0 = y;
+    const char *p = s;
+    while (*p) {
+        /* Greedy: extend word by word while the line still fits. */
+        size_t best = 0, i = 0;
+        while (p[i] && p[i] != '\n') {
+            size_t j = i;
+            while (p[j] == ' ') j++;
+            while (p[j] && p[j] != ' ' && p[j] != '\n') j++;
+            if (j >= sizeof(line)) break;
+            snprintf(line, sizeof(line), "%.*s", (int)j, p);
+            if (best > 0 && ui_text_width(line, size) > w) break;
+            best = j;
+            i = j;
+        }
+        if (best == 0 && p[0] != '\n') best = i > 0 ? i : 1;
+        snprintf(line, sizeof(line), "%.*s", (int)best, p);
+        if (draw) ui_text(x, y, size, c, "%s", line);
+        y += lh;
+        p += best;
+        if (*p == '\n') p++;
+        while (*p == ' ') p++;
+    }
+    return y - y0;
 }
 
 void ui_push_layer(int layer) {
@@ -125,6 +191,10 @@ void ui_set_modal(int layer) { U.modal = layer; }
 
 bool ui_input_free(void) {
     return !U.mouse_used && !U.mouse_eaten && U.modal == 0 && U.pop_id == 0;
+}
+
+bool ui_content_input(void) {
+    return layer_live() && !U.mouse_eaten && U.pop_id == 0;
 }
 
 void ui_claim_rect(Rectangle r) {
@@ -355,4 +425,12 @@ bool ui_slider(int id, Rectangle r, float *value, float min, float max) {
     DrawRectangleRounded((Rectangle){r.x, r.y + r.height / 2 - 3, r.width * t, 6}, 1, 4, UI_ACCENT);
     DrawCircle((int)(r.x + r.width * t), (int)(r.y + r.height / 2), 7, hot(r) || U.active_drag == id ? UI_TEXT : UI_TEXT_DIM);
     return changed;
+}
+
+float ui_text_wrapped(float x, float y, float w, float size, Color c, const char *s) {
+    return wrap_text(x, y, w, size, c, s, true);
+}
+
+float ui_text_wrapped_height(float w, float size, const char *s) {
+    return wrap_text(0, 0, w, size, BLANK, s, false);
 }
