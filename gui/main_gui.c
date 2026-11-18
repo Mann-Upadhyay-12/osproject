@@ -300,7 +300,7 @@ static void select_node_by_name(gui_t *g, const char *name) {
 }
 
 static void select_tab_by_name(gui_t *g, const char *name) {
-    static const char *left_tabs[LTAB_COUNT] = {"explain", "events", "sync"};
+    static const char *left_tabs[LTAB_COUNT] = {"explain", "events", "sync", "realtime"};
     static const char *mid_tabs[] = {"gantt", "states", "table"};
 
     for (int i = 0; i < LTAB_COUNT; i++) {

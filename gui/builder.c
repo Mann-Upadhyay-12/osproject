@@ -9,7 +9,7 @@
 #define BID(n) (1000 + (n))
 
 #define DIALOG_W        600
-#define DIALOG_H        600
+#define DIALOG_H        660
 #define VISIBLE_BURSTS  7
 #define BURST_ROW_H     32.0f
 #define IPC_SEND_DATA   100
@@ -128,6 +128,9 @@ void builder_open_edit(gui_t *g, int pid) {
     snprintf(b->name, sizeof(b->name), "%s", spec.name);
     b->arrival = (int)spec.arrival;
     b->priority = spec.priority;
+    b->period = spec.period;
+    b->deadline = spec.deadline != spec.period ? spec.deadline : 0;
+    b->jobs = spec.period ? spec.jobs : 1;
 
     b->num_bursts = spec.num_bursts;
     for (int i = 0; i < spec.num_bursts; i++) {
@@ -173,6 +176,11 @@ static bool builder_to_spec(gui_t *g, proc_spec_t *spec) {
     proc_spec_init(spec, b->name);
     spec->arrival = (tick_t)(b->arrival < 0 ? 0 : b->arrival);
     spec->priority = (uint16_t)b->priority;
+    if (b->period > 0) {
+        spec->period = (uint16_t)b->period;
+        spec->deadline = (uint16_t)b->deadline;
+        spec->jobs = (uint16_t)(b->jobs > 0 ? b->jobs : 1);
+    }
     copy_bursts_to_spec(b, spec);
 
     int pid_guess = b->edit_pid >= 0 ? b->edit_pid : g->sim->num_processes;
@@ -267,6 +275,23 @@ static float draw_identity_fields(gui_t *g, float x, float y) {
     ui_text_field(BID(1), (Rectangle){x, y, 240, 28}, b->name, sizeof(b->name));
     ui_int_field(BID(2), (Rectangle){x + 260, y, 140, 28}, &b->arrival, earliest_arrival, 100000);
     ui_int_field(BID(3), (Rectangle){x + 420, y, 140, 28}, &b->priority, 0, 9);
+    return y + 40;
+}
+
+static float draw_periodic_fields(builder_t *b, float x, float y) {
+    ui_text(x, y, 14, UI_TEXT_DIM, "Period (0 = not periodic)");
+    ui_text(x + 260, y, 14, UI_TEXT_DIM, "Deadline (0 = period)");
+    ui_text(x + 420, y, 14, UI_TEXT_DIM, "Jobs");
+    y += 18;
+
+    bool periodic = b->period > 0;
+    ui_int_field(BID(5), (Rectangle){x, y, 240, 28}, &b->period, 0, 10000);
+    if (periodic) {
+        ui_int_field(BID(6), (Rectangle){x + 260, y, 140, 28}, &b->deadline, 0, 10000);
+        ui_int_field(BID(7), (Rectangle){x + 420, y, 140, 28}, &b->jobs, 1, 1000);
+    } else {
+        ui_text(x + 260, y + 6, 13, UI_TEXT_DIM, "a periodic task repeats its bursts every period");
+    }
     return y + 40;
 }
 
@@ -422,6 +447,7 @@ void builder_draw(gui_t *g) {
     float y = dialog.y + 52;
 
     y = draw_identity_fields(g, x, y);
+    y = draw_periodic_fields(b, x, y);
     y = draw_pages_field(b, x, y, width);
     y = draw_burst_list(g->sim, b, x, y, width);
     y = draw_template_buttons(g, x, y);

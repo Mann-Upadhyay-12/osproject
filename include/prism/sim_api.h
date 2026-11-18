@@ -19,6 +19,9 @@ typedef struct {
     char      name[PRISM_MAX_NAME_LEN];
     tick_t    arrival;
     uint16_t  priority;
+    uint16_t  period;
+    uint16_t  deadline;
+    uint16_t  jobs;
     uint16_t  num_bursts;
     burst_t   bursts[PRISM_MAX_BURSTS];
     uint16_t  num_page_refs;

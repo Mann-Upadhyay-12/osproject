@@ -36,7 +36,7 @@ static void print_usage(FILE *out) {
         "  --cores N           CPU cores (default 1)\n"
         "  --frames N          physical frames (default 4)\n"
         "  --latency N         disk latency of a page fault, in ticks (default 3)\n"
-        "  --sched NAME        fcfs | sjf | srtf | rr | mlfq | adaptive | cfs | bfs (default rr)\n"
+        "  --sched NAME        fcfs | sjf | srtf | rr | mlfq | adaptive | cfs | bfs | rm | edf (default rr)\n"
         "  --repl NAME         fifo | lru | clock | opt (default lru)\n"
         "  --seed N            PRNG seed (default 42)\n"
         "  --csv               per-process results as CSV\n"

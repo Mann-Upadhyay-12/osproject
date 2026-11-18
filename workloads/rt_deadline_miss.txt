@@ -1,0 +1,9 @@
+# P1 (period 50, 25 ticks), P2 (period 80, 35 ticks): utilization 0.94 is above the RM bound 0.83.
+# Rate monotonic makes P2 miss its deadline at t80 (it finishes at t85); switch the scheduler to EDF and
+# every deadline is met, because EDF works up to 100% utilization.
+cores 1
+frames 8
+sched rm
+
+proc P1 arrival=0 period=50 jobs=8 bursts=C25
+proc P2 arrival=0 period=80 jobs=5 bursts=C35

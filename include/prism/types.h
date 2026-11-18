@@ -33,6 +33,7 @@ typedef enum {
     PROC_BLOCKED_RESOURCE,
     PROC_BLOCKED_IPC,
     PROC_BLOCKED_SEM,
+    PROC_SLEEPING,
     PROC_TERMINATED
 } proc_state_t;
 
@@ -65,6 +66,8 @@ typedef enum {
     SCHED_ADAPTIVE,
     SCHED_CFS,
     SCHED_BFS,
+    SCHED_RM,
+    SCHED_EDF,
     SCHED_COUNT
 } sched_policy_t;
 
@@ -107,7 +110,10 @@ typedef enum {
     EVENT_SEM_BLOCKED,
     EVENT_SEM_SIGNAL,
     EVENT_SEM_WAKE,
-    EVENT_STALLED
+    EVENT_STALLED,
+    EVENT_JOB_RELEASE,
+    EVENT_JOB_COMPLETE,
+    EVENT_DEADLINE_MISS
 } event_type_t;
 
 typedef struct {

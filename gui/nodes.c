@@ -28,6 +28,7 @@ Color state_color(proc_state_t state) {
         case PROC_BLOCKED_RESOURCE:
         case PROC_BLOCKED_IPC:      return (Color){190, 110, 230, 255};
         case PROC_BLOCKED_SEM:      return (Color){230,  95, 170, 255};
+        case PROC_SLEEPING:         return (Color){ 70, 120, 140, 255};
         case PROC_TERMINATED:       return (Color){ 75,  80,  90, 255};
         default:                    return (Color){ 50,  50,  50, 255};
     }

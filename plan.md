@@ -132,7 +132,9 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] GUI: Sync tab (values, waiter queues, resources, who waits for what, deadlock banner), narration for wait/signal/wake/stall
 
 ## Milestone 18 — Real-time scheduling
-- [ ] Periodic tasks (period, exec, jobs), deadline misses, Rate Monotonic + EDF schedulers
+- [x] Periodic tasks (`period=`, `deadline=`, `jobs=` on a `proc` line; `PROC_SLEEPING` between jobs), job release / completion / deadline-miss events
+- [x] Rate Monotonic + EDF schedulers (preemptive, aperiodic work in idle time), schedulability analysis (`realtime.h`: U, RM bound, EDF test, hyperperiod)
+- [x] Presets `rt_rate_monotonic`, `rt_deadline_miss`; textbook tests in `tests/test_realtime.c`; GUI Real-time tab, builder fields, Compare "Deadline misses"
 
 ## Milestone 19 — Multi-core scheduling
 - [ ] Per-core ready queues, CPU affinity, load balancing (pull migration), migration counts

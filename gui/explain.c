@@ -46,6 +46,19 @@ static const algo_info_t g_sched_info[SCHED_COUNT] = {
         "The ready process with the earliest deadline runs next.",
         "Simple, low latency, priorities expressed as deadlines.",
         "Many context switches; long jobs keep getting pushed back while new work arrives.", "yes (slice end)"},
+    [SCHED_RM] = {"Rate Monotonic", "Fixed priorities: the shorter the period, the higher the priority.",
+        "Each periodic task gets a static priority from its period. Whenever a job is released or finishes, the "
+        "highest-priority ready job runs, preempting a lower one. Aperiodic work only runs when no job is ready. "
+        "With n tasks it is guaranteed to meet every deadline if utilization <= n(2^(1/n) - 1).",
+        "Optimal among fixed-priority schedulers; predictable, easy to analyse.",
+        "Cannot use the full CPU: sets above the bound may miss deadlines even though EDF would cope.",
+        "yes (higher-priority release)"},
+    [SCHED_EDF] = {"EDF (Earliest Deadline First)", "Dynamic priorities: the job whose deadline comes first runs.",
+        "Every released job has an absolute deadline (release + relative deadline). The ready job with the "
+        "earliest one runs and preempts a job with a later deadline. Aperiodic work runs in idle time.",
+        "Optimal on one CPU: meets every deadline whenever utilization <= 100%.",
+        "Priorities change all the time; under overload misses cascade unpredictably.",
+        "yes (earlier deadline released)"},
 };
 
 static const algo_info_t g_repl_info[REPL_COUNT] = {
@@ -115,6 +128,11 @@ static bool scheduling_key(const sim_t *s, const pcb_t *p, char *out, size_t siz
         case SCHED_SRTF:     snprintf(out, size, "%d", cpu_burst_len(p, true)); return true;
         case SCHED_CFS:      snprintf(out, size, "%.1f", (double)p->vruntime / 100.0); return true;
         case SCHED_BFS:      snprintf(out, size, "t%" PRIu64, (uint64_t)p->virtual_deadline); return true;
+        case SCHED_RM:       snprintf(out, size, p->period ? "period %u" : "background", p->period); return true;
+        case SCHED_EDF:
+            if (p->period) snprintf(out, size, "due t%" PRIu64, (uint64_t)p->job_deadline);
+            else snprintf(out, size, "background");
+            return true;
         case SCHED_MLFQ:
         case SCHED_ADAPTIVE: snprintf(out, size, "Q%u", p->priority); return true;
         default:             out[0] = '\0'; return false;
@@ -195,6 +213,14 @@ static void dispatch_reason(const sim_t *s, const pcb_t *p, char *why, size_t si
         case SCHED_BFS:
             snprintf(why, size, "earliest virtual deadline (t%" PRIu64 ")", (uint64_t)p->virtual_deadline);
             break;
+        case SCHED_RM:
+            if (p->period) snprintf(why, size, "shortest period among ready jobs (%u)", p->period);
+            else snprintf(why, size, "no periodic job is ready, so background work runs");
+            break;
+        case SCHED_EDF:
+            if (p->period) snprintf(why, size, "earliest deadline among ready jobs (t%" PRIu64 ")", (uint64_t)p->job_deadline);
+            else snprintf(why, size, "no periodic job is ready, so background work runs");
+            break;
         default:
             snprintf(why, size, "chosen by the policy");
             break;
@@ -218,6 +244,7 @@ static void explain_dispatch(gui_t *g, const sim_event_t *ev) {
 }
 
 static void explain_preempt(gui_t *g, const sim_event_t *ev) {
+    if (explain_realtime_preempt(g, ev)) return;
     const sim_t *s = g->sim;
     const char *n = explain_process_name(s, ev->pid);
     switch (s->sched_policy) {
@@ -331,6 +358,11 @@ void explain_event(gui_t *g, const sim_event_t *ev) {
         case EVENT_SEM_WAKE:
         case EVENT_STALLED:
             explain_sync_event(g, ev);
+            break;
+        case EVENT_JOB_RELEASE:
+        case EVENT_JOB_COMPLETE:
+        case EVENT_DEADLINE_MISS:
+            explain_realtime_event(g, ev);
             break;
         default:
             explain_narrate(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");

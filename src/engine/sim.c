@@ -79,6 +79,7 @@ sim_pid_t sim_add_process(sim_t *s, const char *name, tick_t arrival_tick) {
     p->waiting_resource = -1;
     p->waiting_ipc_pid = NO_PROCESS;
     p->waiting_semaphore = -1;
+    p->num_jobs = 1;
     p->next_proc = NO_PROCESS;
 
     for (int page = 0; page < PRISM_MAX_VIRTUAL_PAGES; page++) {
@@ -139,6 +140,7 @@ static bool can_still_progress(proc_state_t state) {
         case PROC_RUNNING:
         case PROC_BLOCKED_IO:
         case PROC_BLOCKED_FAULT:
+        case PROC_SLEEPING:
             return true;
         default:
             return false;
@@ -156,57 +158,6 @@ bool sim_is_stalled(const sim_t *s) {
 bool sim_is_done(const sim_t *s) {
     if (s->num_processes == 0) return true;
     return all_processes_finished(s) || sim_is_stalled(s);
-}
-
-const char *event_type_str(event_type_t type) {
-    switch (type) {
-        case EVENT_PROC_ARRIVE:         return "ARRIVE";
-        case EVENT_PROC_DISPATCH:       return "DISPATCH";
-        case EVENT_PROC_PREEMPT:        return "PREEMPT";
-        case EVENT_PROC_BLOCK_IO:       return "BLOCK_IO";
-        case EVENT_PROC_BLOCK_FAULT:    return "BLOCK_FAULT";
-        case EVENT_PROC_WAKE_IO:        return "WAKE_IO";
-        case EVENT_PROC_WAKE_FAULT:     return "WAKE_FAULT";
-        case EVENT_PROC_TERMINATE:      return "TERMINATE";
-        case EVENT_PAGE_ACCESS:         return "PAGE_ACCESS";
-        case EVENT_PAGE_FAULT:          return "PAGE_FAULT";
-        case EVENT_PAGE_EVICT:          return "PAGE_EVICT";
-        case EVENT_RAM_SHRUNK:          return "RAM_SHRUNK";
-        case EVENT_PROC_KILLED:         return "PROC_KILLED";
-        case EVENT_RESOURCE_REQUEST:    return "RES_REQUEST";
-        case EVENT_RESOURCE_ACQUIRED:   return "RES_ACQUIRED";
-        case EVENT_RESOURCE_RELEASED:   return "RES_RELEASED";
-        case EVENT_RESOURCE_BLOCKED:    return "RES_BLOCKED";
-        case EVENT_DEADLOCK_DETECTED:   return "DEADLOCK_FOUND";
-        case EVENT_DEADLOCK_RESOLVED:   return "DEADLOCK_RESOLVED";
-        case EVENT_IPC_SEND:            return "IPC_SEND";
-        case EVENT_IPC_RECV:            return "IPC_RECV";
-        case EVENT_IPC_BLOCKED:         return "IPC_BLOCKED";
-        case EVENT_CHECKPOINT_SAVED:    return "CKPT_SAVED";
-        case EVENT_CHECKPOINT_RESTORED: return "CKPT_RESTORED";
-        case EVENT_FAULT_INJECTED:      return "FAULT_INJECTED";
-        case EVENT_SEM_WAIT:            return "SEM_WAIT";
-        case EVENT_SEM_BLOCKED:         return "SEM_BLOCKED";
-        case EVENT_SEM_SIGNAL:          return "SEM_SIGNAL";
-        case EVENT_SEM_WAKE:            return "SEM_WAKE";
-        case EVENT_STALLED:             return "STALLED";
-        default:                        return "UNKNOWN";
-    }
-}
-
-const char *proc_state_str(proc_state_t state) {
-    switch (state) {
-        case PROC_NEW:              return "NEW";
-        case PROC_READY:            return "READY";
-        case PROC_RUNNING:          return "RUNNING";
-        case PROC_BLOCKED_IO:       return "BLOCK_IO";
-        case PROC_BLOCKED_FAULT:    return "BLOCK_VM";
-        case PROC_BLOCKED_RESOURCE: return "BLOCK_RES";
-        case PROC_BLOCKED_IPC:      return "BLOCK_IPC";
-        case PROC_BLOCKED_SEM:      return "BLOCK_SEM";
-        case PROC_TERMINATED:       return "TERM";
-        default:                    return "UNUSED";
-    }
 }
 
 static void free_frame(frame_entry_t *frame) {
@@ -272,10 +223,14 @@ static void service_page_fault(sim_t *s, sim_pid_t pid) {
     if (repl->on_load) repl->on_load(s, pid, vpage, frame_idx);
 }
 
-static void make_ready(sim_t *s, pcb_t *p, event_type_t reason, int detail) {
+static void enter_ready_queue(sim_t *s, pcb_t *p) {
     p->state = PROC_READY;
-    sim_log_event(s, reason, p->pid, NO_CORE, detail, 0);
     sched_get_ops(s->sched_policy)->on_ready(s, p->pid);
+}
+
+static void make_ready(sim_t *s, pcb_t *p, event_type_t reason, int detail) {
+    sim_log_event(s, reason, p->pid, NO_CORE, detail, 0);
+    enter_ready_queue(s, p);
 }
 
 static void vacate_core(sim_t *s, pcb_t *p) {
@@ -297,13 +252,81 @@ static bool has_more_bursts(const pcb_t *p) {
     return p->curr_burst_idx < p->num_bursts;
 }
 
+static bool is_periodic(const pcb_t *p) {
+    return p->period > 0;
+}
+
+static void release_job(sim_t *s, pcb_t *p, tick_t release) {
+    p->job_release = release;
+    p->job_deadline = release + p->relative_deadline;
+    p->job_missed = false;
+    sim_log_event(s, EVENT_JOB_RELEASE, p->pid, NO_CORE, p->jobs_done + 1, (int32_t)p->job_deadline);
+    enter_ready_queue(s, p);
+}
+
 static void admit_arrivals(sim_t *s) {
     for (int i = 0; i < s->num_processes; i++) {
         pcb_t *p = &s->procs[i];
-        if (p->state == PROC_NEW && p->arrival_tick <= s->tick) {
+        if (p->state != PROC_NEW || p->arrival_tick > s->tick) continue;
+
+        if (is_periodic(p)) {
+            sim_log_event(s, EVENT_PROC_ARRIVE, p->pid, NO_CORE, 0, 0);
+            release_job(s, p, p->arrival_tick);
+        } else {
             make_ready(s, p, EVENT_PROC_ARRIVE, 0);
         }
     }
+}
+
+static void release_periodic_jobs(sim_t *s) {
+    for (int i = 0; i < s->num_processes; i++) {
+        pcb_t *p = &s->procs[i];
+        if (p->state == PROC_SLEEPING && p->job_release <= s->tick) release_job(s, p, p->job_release);
+    }
+}
+
+static bool job_in_progress(const pcb_t *p) {
+    return p->state != PROC_NEW && p->state != PROC_SLEEPING && p->state != PROC_TERMINATED && p->state != PROC_UNUSED;
+}
+
+static void check_deadlines(sim_t *s) {
+    for (int i = 0; i < s->num_processes; i++) {
+        pcb_t *p = &s->procs[i];
+        bool overdue = is_periodic(p) && job_in_progress(p) && !p->job_missed && s->tick >= p->job_deadline;
+        if (!overdue) continue;
+
+        p->job_missed = true;
+        p->deadline_misses++;
+        s->total_deadline_misses++;
+        sim_log_event(s, EVENT_DEADLINE_MISS, p->pid, p->assigned_core, p->jobs_done + 1, (int32_t)p->job_deadline);
+    }
+}
+
+static void rewind_bursts(pcb_t *p) {
+    for (int b = 0; b < p->num_bursts; b++) p->bursts[b].remaining = p->bursts[b].duration;
+    p->curr_burst_idx = 0;
+    p->curr_page_ref_idx = 0;
+}
+
+static void sleep_until_next_job(sim_t *s, pcb_t *p, int core) {
+    rewind_bursts(p);
+    p->state = PROC_SLEEPING;
+    p->job_release += p->period;
+    vacate_core(s, p);
+    if (core != NO_CORE) sched_get_ops(s->sched_policy)->on_block(s, p->pid);
+}
+
+static void finish_job(sim_t *s, pcb_t *p, tick_t finish_tick, int core) {
+    if (!is_periodic(p)) {
+        terminate(s, p, finish_tick, core);
+        return;
+    }
+
+    p->jobs_done++;
+    int32_t lateness = (int32_t)((int64_t)finish_tick - (int64_t)p->job_deadline);
+    sim_log_event(s, EVENT_JOB_COMPLETE, p->pid, core, p->jobs_done, lateness);
+    if (p->jobs_done >= p->num_jobs) terminate(s, p, finish_tick, core);
+    else sleep_until_next_job(s, p, core);
 }
 
 static void advance_io(sim_t *s) {
@@ -319,7 +342,7 @@ static void advance_io(sim_t *s) {
         if (has_more_bursts(p)) {
             make_ready(s, p, EVENT_PROC_WAKE_IO, 0);
         } else {
-            terminate(s, p, s->tick, NO_CORE);
+            finish_job(s, p, s->tick, NO_CORE);
         }
     }
 }
@@ -491,7 +514,7 @@ static bool run_control_bursts(sim_t *s, pcb_t *p, int core, tick_t finish_tick)
     }
     if (has_more_bursts(p)) return true;
 
-    terminate(s, p, finish_tick, core);
+    finish_job(s, p, finish_tick, core);
     return false;
 }
 
@@ -537,8 +560,10 @@ bool sim_step(sim_t *s) {
     if (sim_is_done(s)) return false;
 
     admit_arrivals(s);
+    release_periodic_jobs(s);
     advance_io(s);
     advance_fault_service(s);
+    check_deadlines(s);
     dispatch_idle_cores(s);
     account_waiting(s);
     for (int c = 0; c < s->num_cores; c++) {

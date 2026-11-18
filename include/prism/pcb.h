@@ -55,6 +55,15 @@ typedef struct {
 
     uint16_t           num_checkpoints;
 
+    uint16_t           period;
+    uint16_t           relative_deadline;
+    uint16_t           num_jobs;
+    uint16_t           jobs_done;
+    tick_t             job_release;
+    tick_t             job_deadline;
+    bool               job_missed;
+    uint16_t           deadline_misses;
+
     int16_t            next_proc;
 } pcb_t;
 

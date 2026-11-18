@@ -49,6 +49,8 @@ int proc_spec_validate(const proc_spec_t *spec, char *msg, size_t msglen) {
     if (spec->num_bursts == 0) SPEC_FAIL("process needs at least one burst");
     if (spec->num_bursts > PRISM_MAX_BURSTS) SPEC_FAIL("more than %d bursts", PRISM_MAX_BURSTS);
     if (spec->bursts[0].kind != BURST_CPU) SPEC_FAIL("first burst must be cpu");
+    if (spec->period == 0 && spec->jobs > 1) SPEC_FAIL("repeating jobs need a period");
+    if (spec->period == 0 && spec->deadline > 0) SPEC_FAIL("a deadline needs a period");
     for (int i = 0; i < spec->num_bursts; i++) {
         const burst_t *b = &spec->bursts[i];
         if (b->kind > BURST_SEM_SIGNAL) SPEC_FAIL("burst %d has unknown kind", i + 1);
@@ -85,6 +87,9 @@ static void pcb_apply_spec(pcb_t *p, const proc_spec_t *spec, tick_t arrival) {
     p->arrival_tick = arrival;
     p->priority = spec->priority;
     p->base_priority = spec->priority;
+    p->period = spec->period;
+    p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
+    p->num_jobs = spec->jobs ? spec->jobs : 1;
 
     p->num_bursts = spec->num_bursts;
     copy_bursts_unstarted(p->bursts, spec->bursts, spec->num_bursts);
@@ -149,6 +154,9 @@ int sim_get_process_spec(const sim_t *s, sim_pid_t pid, proc_spec_t *out) {
     proc_spec_init(out, p->name);
     out->arrival = p->arrival_tick;
     out->priority = p->base_priority;
+    out->period = p->period;
+    out->deadline = p->relative_deadline;
+    out->jobs = p->num_jobs;
     out->num_bursts = p->num_bursts;
     copy_bursts_unstarted(out->bursts, p->bursts, p->num_bursts);
     out->num_page_refs = p->num_page_refs;

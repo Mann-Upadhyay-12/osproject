@@ -128,6 +128,12 @@ void anim_observer(const sim_event_t *ev, void *user) {
         case EVENT_SEM_WAKE:
             MOVE(g, pid, false, NODE_PROC, NODE_READY);
             break;
+        case EVENT_JOB_RELEASE:
+            if (ev->detail1 > 1) MOVE(g, pid, false, NODE_PROC, NODE_READY);
+            break;
+        case EVENT_JOB_COMPLETE:
+            if (ev->core_id >= 0 && ev->detail1 < g->sim->procs[pid].num_jobs) MOVE(g, pid, false, NODE_CPU, NODE_PROC);
+            break;
         case EVENT_PAGE_FAULT:
             g->node_flash[NODE_MEMORY] = g->anim_now;
             break;

@@ -96,6 +96,8 @@ static void write_page_refs(FILE *fp, const pcb_t *p) {
 static void write_process(FILE *fp, const sim_t *s, const pcb_t *p) {
     fprintf(fp, "proc %s arrival=%" PRIu64, p->name, p->arrival_tick);
     if (p->base_priority) fprintf(fp, " priority=%u", p->base_priority);
+    if (p->period) fprintf(fp, " period=%u jobs=%u", p->period, p->num_jobs);
+    if (p->period && p->relative_deadline != p->period) fprintf(fp, " deadline=%u", p->relative_deadline);
 
     fputs(" bursts=", fp);
     write_bursts(fp, s, p);

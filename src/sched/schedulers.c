@@ -1,11 +1,6 @@
-#include "prism/sched.h"
-#include "prism/sim.h"
+#include "sched_common.h"
 #include "prism/text.h"
 #include <stddef.h>
-
-#define NO_PROCESS  (-1)
-#define NO_CORE     (-1)
-#define MAIN_QUEUE  0
 
 static void no_init(sim_t *s) {
     (void)s;
@@ -22,7 +17,7 @@ static void no_block(sim_t *s, sim_pid_t pid) {
     (void)pid;
 }
 
-static void preempt(sim_t *s, int core_id, sim_pid_t pid, int32_t detail1, int32_t detail2) {
+void sched_preempt(sim_t *s, int core_id, sim_pid_t pid, int32_t detail1, int32_t detail2) {
     pcb_t *p = &s->procs[pid];
     p->state = PROC_READY;
     p->assigned_core = NO_CORE;
@@ -39,9 +34,7 @@ static bool has_ready(const sim_t *s, int queue_idx) {
     return s->ready_count[queue_idx] > 0;
 }
 
-typedef bool (*runs_before_fn)(const pcb_t *candidate, const pcb_t *best);
-
-static sim_pid_t take_best_ready(sim_t *s, runs_before_fn runs_before) {
+sim_pid_t sched_take_best_ready(sim_t *s, runs_before_fn runs_before) {
     sim_pid_t best = NO_PROCESS;
     for (sim_pid_t pid = s->ready_head[MAIN_QUEUE]; pid != NO_PROCESS; pid = s->procs[pid].next_proc) {
         if (best == NO_PROCESS || runs_before(&s->procs[pid], &s->procs[best])) best = pid;
@@ -100,7 +93,7 @@ static void rr_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
         p->quantum_remaining = s->default_quantum;
         return;
     }
-    preempt(s, core_id, running_pid, 0, 0);
+    sched_preempt(s, core_id, running_pid, 0, 0);
     rr_on_ready(s, running_pid);
 }
 
@@ -112,7 +105,7 @@ static bool shorter_burst(const pcb_t *candidate, const pcb_t *best) {
 
 static sim_pid_t sjf_pick_next(sim_t *s, int core_id) {
     (void)core_id;
-    return take_best_ready(s, shorter_burst);
+    return sched_take_best_ready(s, shorter_burst);
 }
 
 static bool less_time_left(const pcb_t *candidate, const pcb_t *best) {
@@ -130,7 +123,7 @@ static void srtf_preempt_for(sim_t *s, sim_pid_t newcomer) {
 
         uint16_t running_left = cpu_burst_left(&s->procs[running]);
         if (newcomer_left < running_left) {
-            preempt(s, c, running, running_left, newcomer_left);
+            sched_preempt(s, c, running, running_left, newcomer_left);
             sim_queue_push(s, MAIN_QUEUE, running);
             return;
         }
@@ -144,7 +137,7 @@ static void srtf_on_ready(sim_t *s, sim_pid_t pid) {
 
 static sim_pid_t srtf_pick_next(sim_t *s, int core_id) {
     (void)core_id;
-    return take_best_ready(s, less_time_left);
+    return sched_take_best_ready(s, less_time_left);
 }
 
 static void srtf_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
@@ -153,7 +146,7 @@ static void srtf_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
     for (sim_pid_t pid = s->ready_head[MAIN_QUEUE]; pid != NO_PROCESS; pid = s->procs[pid].next_proc) {
         uint16_t candidate_left = cpu_burst_left(&s->procs[pid]);
         if (candidate_left < running_left) {
-            preempt(s, core_id, running_pid, running_left, candidate_left);
+            sched_preempt(s, core_id, running_pid, running_left, candidate_left);
             sim_queue_push(s, MAIN_QUEUE, running_pid);
             return;
         }
@@ -212,7 +205,7 @@ static void mlfq_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
     if (!quantum_expired(p)) return;
 
     if (p->priority < MLFQ_LOWEST_LEVEL) p->priority++;
-    preempt(s, core_id, running_pid, p->priority, 0);
+    sched_preempt(s, core_id, running_pid, p->priority, 0);
     mlfq_on_ready(s, running_pid);
 }
 
@@ -262,7 +255,7 @@ static void adaptive_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
         p->quantum_remaining = ADAPTIVE_NORMAL_SLICE;
         return;
     }
-    preempt(s, core_id, running_pid, 0, 0);
+    sched_preempt(s, core_id, running_pid, 0, 0);
     adaptive_on_ready(s, running_pid);
 }
 
@@ -317,7 +310,7 @@ static bool smaller_vruntime(const pcb_t *candidate, const pcb_t *best) {
 
 static sim_pid_t cfs_pick_next(sim_t *s, int core_id) {
     (void)core_id;
-    sim_pid_t pid = take_best_ready(s, smaller_vruntime);
+    sim_pid_t pid = sched_take_best_ready(s, smaller_vruntime);
     if (pid != NO_PROCESS) s->procs[pid].quantum_remaining = CFS_SLICE_TICKS;
     return pid;
 }
@@ -338,7 +331,7 @@ static void cfs_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
         p->quantum_remaining = CFS_SLICE_TICKS;
         return;
     }
-    preempt(s, core_id, running_pid, (int32_t)(p->vruntime / CFS_VRUNTIME_SCALE), 0);
+    sched_preempt(s, core_id, running_pid, (int32_t)(p->vruntime / CFS_VRUNTIME_SCALE), 0);
     sim_queue_push(s, MAIN_QUEUE, running_pid);
 }
 
@@ -362,7 +355,7 @@ static bool earlier_deadline(const pcb_t *candidate, const pcb_t *best) {
 
 static sim_pid_t bfs_pick_next(sim_t *s, int core_id) {
     (void)core_id;
-    sim_pid_t pid = take_best_ready(s, earlier_deadline);
+    sim_pid_t pid = sched_take_best_ready(s, earlier_deadline);
     if (pid != NO_PROCESS) s->procs[pid].quantum_remaining = BFS_RR_INTERVAL;
     return pid;
 }
@@ -376,7 +369,7 @@ static void bfs_on_tick(sim_t *s, int core_id, sim_pid_t running_pid) {
         return;
     }
     p->virtual_deadline = bfs_deadline(s, p);
-    preempt(s, core_id, running_pid, (int32_t)p->virtual_deadline, 0);
+    sched_preempt(s, core_id, running_pid, (int32_t)p->virtual_deadline, 0);
     sim_queue_push(s, MAIN_QUEUE, running_pid);
 }
 
@@ -420,6 +413,16 @@ static const sched_ops_t SCHEDULERS[SCHED_COUNT] = {
         .policy = SCHED_BFS, .name = "BFS", .key = "bfs",
         .init = no_init, .on_ready = bfs_on_ready, .pick_next = bfs_pick_next,
         .on_tick = bfs_on_tick, .on_block = no_block
+    },
+    [SCHED_RM] = {
+        .policy = SCHED_RM, .name = "RateMonotonic", .key = "rm",
+        .init = no_init, .on_ready = rm_on_ready, .pick_next = rm_pick_next,
+        .on_tick = rm_on_tick, .on_block = no_block
+    },
+    [SCHED_EDF] = {
+        .policy = SCHED_EDF, .name = "EDF", .key = "edf",
+        .init = no_init, .on_ready = edf_on_ready, .pick_next = edf_pick_next,
+        .on_tick = edf_on_tick, .on_block = no_block
     },
 };
 

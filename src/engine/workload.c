@@ -140,6 +140,9 @@ static sim_pid_t workload_install_spec(sim_t *sim, const proc_spec_t *spec) {
     pcb_t *p = &sim->procs[pid];
     p->priority = spec->priority;
     p->base_priority = spec->priority;
+    p->period = spec->period;
+    p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
+    p->num_jobs = spec->jobs ? spec->jobs : 1;
     p->num_bursts = spec->num_bursts;
     memcpy(p->bursts, spec->bursts, spec->num_bursts * sizeof(spec->bursts[0]));
     p->num_page_refs = spec->num_page_refs;
@@ -251,6 +254,12 @@ static void parse_proc(parse_ctx_t *ctx, char *fields) {
             spec.arrival = (tick_t)strtoull(token + 8, NULL, 10);
         } else if (starts_with(token, "priority=")) {
             spec.priority = (uint16_t)atoi(token + 9);
+        } else if (starts_with(token, "period=")) {
+            spec.period = (uint16_t)atoi(token + 7);
+        } else if (starts_with(token, "deadline=")) {
+            spec.deadline = (uint16_t)atoi(token + 9);
+        } else if (starts_with(token, "jobs=")) {
+            spec.jobs = (uint16_t)atoi(token + 5);
         } else if (starts_with(token, "bursts=")) {
             snprintf(bursts, sizeof(bursts), "%s", token + 7);
         } else if (starts_with(token, "pages=")) {

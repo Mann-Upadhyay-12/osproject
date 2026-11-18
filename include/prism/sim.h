@@ -95,6 +95,7 @@ typedef struct sim {
     uint32_t           total_context_switches;
     uint32_t           total_deadlocks_detected;
     uint32_t           total_deadlocks_recovered;
+    uint32_t           total_deadline_misses;
 
     sim_event_t        event_log[PRISM_MAX_EVENT_LOG];
     uint32_t           event_count;
