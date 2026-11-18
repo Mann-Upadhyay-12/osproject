@@ -41,7 +41,7 @@ static void report_engine(const sim_t *s) {
     printf("  Cores Configured   : %d\n", s->num_cores);
     printf("  PRNG State / Seed  : 0x%016" PRIx64 " (Seed: %" PRIu64 ")\n", s->prng_state, s->seed);
     printf("  Deterministic Hash : %s0x%016" PRIx64 "%s (FNV-1a byte-identical verification)\n", ANSI_GREEN, s->log_hash, ANSI_RESET);
-    printf("  Simulation Status  : %s\n", sim_is_done(s) ? "COMPLETED" : "IN-PROGRESS");
+    printf("  Simulation Status  : %s\n", sim_is_stalled(s) ? "STALLED (every live process is blocked)" : sim_is_done(s) ? "COMPLETED" : "IN-PROGRESS");
 }
 
 static void report_process_table(const sim_t *s) {

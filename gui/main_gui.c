@@ -126,8 +126,6 @@ static void advance(gui_t *g, float dt) {
         if (sim_is_done(g->sim)) {
             g->playing = false;
             g->tick_accumulator = 0;
-            gui_status(g, false, "Finished at tick %" PRIu64 ". See the Results table, rewind with B, or open Compare (Tab).",
-                       (uint64_t)g->sim->tick);
             return;
         }
     }
@@ -302,10 +300,10 @@ static void select_node_by_name(gui_t *g, const char *name) {
 }
 
 static void select_tab_by_name(gui_t *g, const char *name) {
-    static const char *left_tabs[] = {"explain", "events"};
+    static const char *left_tabs[LTAB_COUNT] = {"explain", "events", "sync"};
     static const char *mid_tabs[] = {"gantt", "states", "table"};
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < LTAB_COUNT; i++) {
         if (strcmp(name, left_tabs[i]) == 0) g->left_tab = i;
     }
     for (int i = 0; i < 3; i++) {

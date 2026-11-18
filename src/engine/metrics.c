@@ -50,7 +50,7 @@ void sim_metrics_compute(const sim_t *s, sim_metrics_t *m) {
     m->page_accesses = s->total_page_accesses;
     m->page_faults = s->total_page_faults;
     m->fault_rate = percent(s->total_page_faults, s->total_page_accesses);
-    m->finished = sim_is_done(s);
+    m->finished = sim_is_done(s) && !sim_is_stalled(s);
 }
 
 static int apply_variant_sched(sim_t *dst, int sched, int quantum) {
@@ -90,5 +90,5 @@ bool sim_run_bounded(sim_t *s, tick_t max_ticks) {
     tick_t stop = s->tick + max_ticks;
     while (s->tick < stop && sim_step(s)) {
     }
-    return sim_is_done(s);
+    return sim_is_done(s) && !sim_is_stalled(s);
 }

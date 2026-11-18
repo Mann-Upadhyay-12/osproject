@@ -65,7 +65,7 @@ typedef struct {
 typedef enum { MODE_EDIT = 0, MODE_RUN } gui_mode_t;
 typedef enum { VIEW_SIM = 0, VIEW_COMPARE, VIEW_LABS, VIEW_COUNT } gui_view_t;
 
-typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_COUNT } left_tab_t;
+typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_SYNC, LTAB_COUNT } left_tab_t;
 typedef enum { MTAB_GANTT = 0, MTAB_STATES, MTAB_TABLE, MTAB_COUNT } mid_tab_t;
 
 typedef struct {
@@ -200,6 +200,12 @@ const algo_info_t *explain_sched_info(sched_policy_t p);
 const algo_info_t *explain_repl_info(repl_policy_t p);
 float explain_draw_card(const algo_info_t *a, float x, float y, float w);
 void  explain_event(gui_t *g, const sim_event_t *ev);
+void  explain_narrate(gui_t *g, const sim_event_t *ev, const char *fmt, ...);
+const char *explain_process_name(const sim_t *s, int pid);
+void  explain_sync_event(gui_t *g, const sim_event_t *ev);
+void  sync_describe_stall(const sim_t *s, char *out, size_t size);
+void  panel_sync(gui_t *g, Rectangle body);
+void  gui_report_end(gui_t *g);
 void  explain_clear(gui_t *g);
 void  panel_explain(gui_t *g, Rectangle body);
 void  explain_draw_latest(gui_t *g, Rectangle canvas);

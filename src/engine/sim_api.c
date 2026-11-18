@@ -51,7 +51,9 @@ int proc_spec_validate(const proc_spec_t *spec, char *msg, size_t msglen) {
     if (spec->bursts[0].kind != BURST_CPU) SPEC_FAIL("first burst must be cpu");
     for (int i = 0; i < spec->num_bursts; i++) {
         const burst_t *b = &spec->bursts[i];
-        if (b->kind > BURST_CHECKPOINT) SPEC_FAIL("burst %d has unknown kind", i + 1);
+        if (b->kind > BURST_SEM_SIGNAL) SPEC_FAIL("burst %d has unknown kind", i + 1);
+        bool uses_semaphore = b->kind == BURST_SEM_WAIT || b->kind == BURST_SEM_SIGNAL;
+        if (uses_semaphore && b->target_id < 0) SPEC_FAIL("burst %d names no semaphore", i + 1);
         if ((b->kind == BURST_CPU || b->kind == BURST_IO) && b->duration == 0)
             SPEC_FAIL("burst %d has zero duration", i + 1);
     }
@@ -186,6 +188,9 @@ void sim_reset(sim_t *s) {
 
     for (int r = 0; r < s->num_resources; r++) {
         sim_add_resource(fresh, s->resources[r].name, s->resources[r].total_instances);
+    }
+    for (int i = 0; i < s->num_semaphores; i++) {
+        sim_add_semaphore(fresh, s->semaphores[i].name, s->semaphores[i].initial_value);
     }
 
     for (sim_pid_t pid = 0; pid < s->num_processes; pid++) {

@@ -49,6 +49,7 @@ typedef struct {
     uint16_t           fault_vpage;
     int16_t            waiting_resource;
     int16_t            waiting_ipc_pid;
+    int16_t            waiting_semaphore;
 
     uint16_t           held_resources_mask;
 

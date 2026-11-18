@@ -1,0 +1,16 @@
+# Readers-writers with a counting semaphore: "room" has 3 seats.
+# A reader takes one seat, so up to 3 read together; a writer takes all 3 seats, so it writes alone.
+# "writer" stops two writers from each grabbing some seats and deadlocking.
+cores 2
+frames 8
+sched rr
+quantum 2
+semaphore room 3
+semaphore writer 1
+
+proc Reader1 arrival=0 bursts=C1,wait:room,C4,signal:room,C2,wait:room,C3,signal:room,C1
+proc Reader2 arrival=0 bursts=C1,wait:room,C4,signal:room,C2,wait:room,C3,signal:room,C1
+proc Writer1 arrival=1 bursts=C2,wait:writer,wait:room,wait:room,wait:room,C3,signal:room,signal:room,signal:room,signal:writer,C1
+proc Reader3 arrival=2 bursts=C1,wait:room,C4,signal:room,C2,wait:room,C3,signal:room,C1
+proc Writer2 arrival=3 bursts=C2,wait:writer,wait:room,wait:room,wait:room,C3,signal:room,signal:room,signal:room,signal:writer,C1
+proc Reader4 arrival=4 bursts=C1,wait:room,C4,signal:room,C2,wait:room,C3,signal:room,C1

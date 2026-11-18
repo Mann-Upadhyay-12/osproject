@@ -144,15 +144,16 @@ void panel_toolbar(gui_t *g, Rectangle r) {
 
 static float draw_state_legend(float x, float y) {
     static const proc_state_t states[] = {
-        PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED_IO, PROC_BLOCKED_FAULT, PROC_TERMINATED
+        PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED_IO, PROC_BLOCKED_FAULT, PROC_BLOCKED_SEM, PROC_TERMINATED
     };
     static const char *labels[] = {
-        "new", "ready", "running", "blocked: I/O", "blocked: page fault", "terminated"
+        "new", "ready", "running", "blocked: I/O", "blocked: page fault", "blocked: semaphore", "terminated"
     };
+    enum { NUM_STATES = sizeof(labels) / sizeof(labels[0]) };
 
     ui_text(x, y, 13, UI_TEXT_DIM, "Process states");
     y += 20;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < NUM_STATES; i++) {
         DrawRectangleRounded((Rectangle){x, y + 2, 12, 12}, 0.3f, 4, state_color(states[i]));
         ui_text(x + 18, y, 13, UI_TEXT, "%s", labels[i]);
         y += 18;
@@ -230,8 +231,15 @@ Color event_color(event_type_t type) {
         case EVENT_PROC_WAKE_FAULT:  return (Color){240, 140, 140, 255};
         case EVENT_PROC_TERMINATE:   return UI_TEXT;
         case EVENT_PAGE_ACCESS:      return UI_TEXT_DIM;
+        case EVENT_SEM_BLOCKED:
+        case EVENT_STALLED:          return UI_BAD;
+        case EVENT_SEM_WAKE:         return UI_GOOD;
         default:                     return (Color){200, 150, 240, 255};
     }
+}
+
+static const char *sem_name(const sim_t *s, int sem_id) {
+    return sem_id >= 0 && sem_id < s->num_semaphores ? s->semaphores[sem_id].name : "?";
 }
 
 static void describe_event(const gui_t *g, const sim_event_t *e, char *out, size_t size) {
@@ -244,6 +252,11 @@ static void describe_event(const gui_t *g, const sim_event_t *e, char *out, size
         case EVENT_PROC_WAKE_FAULT:  snprintf(out, size, "page %d loaded", e->detail1); break;
         case EVENT_PAGE_EVICT:       snprintf(out, size, "page %d evicted from frame %d", e->detail1, e->detail2); break;
         case EVENT_RAM_SHRUNK:       snprintf(out, size, "%d frames", e->detail1); break;
+        case EVENT_SEM_WAIT:         snprintf(out, size, "wait(%s) passes, value %d", sem_name(g->sim, e->detail1), e->detail2); break;
+        case EVENT_SEM_BLOCKED:      snprintf(out, size, "wait(%s) blocks, %d waiting", sem_name(g->sim, e->detail1), e->detail2); break;
+        case EVENT_SEM_SIGNAL:       snprintf(out, size, "signal(%s), value %d", sem_name(g->sim, e->detail1), e->detail2); break;
+        case EVENT_SEM_WAKE:         snprintf(out, size, "woken on %s", sem_name(g->sim, e->detail1)); break;
+        case EVENT_STALLED:          snprintf(out, size, "%d processes blocked forever", e->detail1); break;
         default:                     out[0] = '\0'; break;
     }
 }
@@ -342,11 +355,14 @@ static Rectangle tab_pane(Rectangle r, int first_id, const char *const *names, i
 }
 
 void panel_bottom_left(gui_t *g, Rectangle r) {
-    static const char *names[LTAB_COUNT] = {"Explain", "Event list"};
+    static const char *names[LTAB_COUNT] = {"Explain", "Event list", "Sync"};
     Rectangle body = tab_pane(r, 520, names, LTAB_COUNT, &g->left_tab);
 
-    if (g->left_tab == LTAB_EXPLAIN) panel_explain(g, body);
-    else panel_events(g, body);
+    switch (g->left_tab) {
+        case LTAB_EXPLAIN: panel_explain(g, body); break;
+        case LTAB_EVENTS:  panel_events(g, body); break;
+        default:           panel_sync(g, body); break;
+    }
 }
 
 void panel_bottom_mid(gui_t *g, Rectangle r) {

@@ -1,5 +1,6 @@
 #include "prism/workload.h"
 #include "prism/prng.h"
+#include "prism/text.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +23,22 @@ static bool spec_add_control(proc_spec_t *spec, burst_kind_t kind, int target, i
     return true;
 }
 
-static bool parse_one_burst(proc_spec_t *spec, const char *token) {
+static bool parse_semaphore_burst(proc_spec_t *spec, const char *token, const sim_t *sim) {
+    const char *colon = strchr(token, ':');
+    char verb[16];
+    snprintf(verb, sizeof(verb), "%.*s", (int)(colon - token), token);
+    bool is_wait = text_equals_ignore_case(verb, "wait") || text_equals_ignore_case(verb, "p");
+    bool is_signal = text_equals_ignore_case(verb, "signal") || text_equals_ignore_case(verb, "v");
+    if (!is_wait && !is_signal) return false;
+
+    int32_t sem_id = sim ? sim_find_semaphore(sim, colon + 1) : -1;
+    if (sem_id < 0) return false;
+    return spec_add_control(spec, is_wait ? BURST_SEM_WAIT : BURST_SEM_SIGNAL, sem_id, 0);
+}
+
+static bool parse_one_burst(proc_spec_t *spec, const char *token, const sim_t *sim) {
+    if (strchr(token, ':')) return parse_semaphore_burst(spec, token, sim);
+
     char code = (char)toupper((unsigned char)token[0]);
     int arg = atoi(token + 1);
 
@@ -40,7 +56,7 @@ static bool parse_one_burst(proc_spec_t *spec, const char *token) {
     }
 }
 
-bool workload_parse_bursts(proc_spec_t *spec, const char *burst_str) {
+bool workload_parse_bursts(proc_spec_t *spec, const char *burst_str, const sim_t *sim) {
     char buf[1024];
     snprintf(buf, sizeof(buf), "%s", burst_str);
 
@@ -48,7 +64,7 @@ bool workload_parse_bursts(proc_spec_t *spec, const char *burst_str) {
     for (char *token = strtok(buf, ","); token; token = strtok(NULL, ",")) {
         token = trim_whitespace(token);
         if (*token == '\0') continue;
-        if (!parse_one_burst(spec, token)) all_ok = false;
+        if (!parse_one_burst(spec, token, sim)) all_ok = false;
     }
     return all_ok;
 }
@@ -176,6 +192,16 @@ static void parse_resource(parse_ctx_t *ctx, const char *value) {
     }
 }
 
+static void parse_semaphore(parse_ctx_t *ctx, const char *value) {
+    char name[PRISM_MAX_NAME_LEN];
+    int initial = 1;
+    if (sscanf(value, "%31s %d", name, &initial) < 1 || !ctx->sim) return;
+    if (sim_add_semaphore(ctx->sim, name, initial) < 0) {
+        fprintf(stderr, "%s:%d: semaphore '%s' is a duplicate, negative, or one too many (max %d)\n", ctx->path,
+                ctx->lineno, name, PRISM_MAX_SEMAPHORES);
+    }
+}
+
 static void parse_sched(parse_ctx_t *ctx, const char *value) {
     char name[32] = "";
     sscanf(value, "%31s", name);
@@ -235,7 +261,7 @@ static void parse_proc(parse_ctx_t *ctx, char *fields) {
     sim_t *sim = ctx->sim;
     if (!sim) return;
 
-    if (bursts[0] && !workload_parse_bursts(&spec, bursts)) {
+    if (bursts[0] && !workload_parse_bursts(&spec, bursts, sim)) {
         fprintf(stderr, "%s:%d: bad or too many bursts in '%s' (skipped)\n", ctx->path, ctx->lineno, bursts);
     }
     if (pages[0] && !workload_parse_pages(&spec, pages, sim->seed, sim->num_processes)) {
@@ -252,6 +278,7 @@ static void parse_line(parse_ctx_t *ctx, char *line) {
     else if (starts_with(line, "frames"))       parse_frames(ctx, line + 6);
     else if (starts_with(line, "disk_latency")) parse_disk_latency(ctx, line + 12);
     else if (starts_with(line, "resource"))     parse_resource(ctx, line + 8);
+    else if (starts_with(line, "semaphore"))    parse_semaphore(ctx, line + 9);
     else if (starts_with(line, "sched"))        parse_sched(ctx, line + 5);
     else if (starts_with(line, "repl"))         parse_repl(ctx, line + 4);
     else if (starts_with(line, "quantum"))      parse_quantum(ctx, line + 7);

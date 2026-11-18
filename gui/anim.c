@@ -122,6 +122,12 @@ void anim_observer(const sim_event_t *ev, void *user) {
             MOVE(g, pid, ev->type == EVENT_PROC_KILLED, from, NODE_PROC);
             break;
         }
+        case EVENT_SEM_BLOCKED:
+            MOVE(g, pid, true, NODE_CPU, NODE_PROC);
+            break;
+        case EVENT_SEM_WAKE:
+            MOVE(g, pid, false, NODE_PROC, NODE_READY);
+            break;
         case EVENT_PAGE_FAULT:
             g->node_flash[NODE_MEMORY] = g->anim_now;
             break;

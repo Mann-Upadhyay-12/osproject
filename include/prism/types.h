@@ -18,6 +18,7 @@
 #define PRISM_MAX_RESOURCES      16
 #define PRISM_MAX_MSG_QUEUE      32
 #define PRISM_MAX_CHECKPOINTS    8
+#define PRISM_MAX_SEMAPHORES     16
 
 typedef uint64_t tick_t;
 typedef int32_t  sim_pid_t;
@@ -31,6 +32,7 @@ typedef enum {
     PROC_BLOCKED_FAULT,
     PROC_BLOCKED_RESOURCE,
     PROC_BLOCKED_IPC,
+    PROC_BLOCKED_SEM,
     PROC_TERMINATED
 } proc_state_t;
 
@@ -41,7 +43,9 @@ typedef enum {
     BURST_RELEASE,
     BURST_IPC_SEND,
     BURST_IPC_RECV,
-    BURST_CHECKPOINT
+    BURST_CHECKPOINT,
+    BURST_SEM_WAIT,
+    BURST_SEM_SIGNAL
 } burst_kind_t;
 
 typedef struct {
@@ -98,7 +102,12 @@ typedef enum {
     EVENT_IPC_BLOCKED,
     EVENT_CHECKPOINT_SAVED,
     EVENT_CHECKPOINT_RESTORED,
-    EVENT_FAULT_INJECTED
+    EVENT_FAULT_INJECTED,
+    EVENT_SEM_WAIT,
+    EVENT_SEM_BLOCKED,
+    EVENT_SEM_SIGNAL,
+    EVENT_SEM_WAKE,
+    EVENT_STALLED
 } event_type_t;
 
 typedef struct {

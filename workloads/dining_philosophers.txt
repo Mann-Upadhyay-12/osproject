@@ -1,0 +1,17 @@
+# Dining philosophers that deadlock: everyone picks up the left fork, then waits for the right one.
+# The run stalls with all five blocked; compare with dining_philosophers_fixed.txt.
+cores 1
+frames 8
+sched rr
+quantum 1
+semaphore fork0 1
+semaphore fork1 1
+semaphore fork2 1
+semaphore fork3 1
+semaphore fork4 1
+
+proc Phil0 arrival=0 bursts=C1,wait:fork0,C2,wait:fork1,C3,signal:fork1,signal:fork0,C1
+proc Phil1 arrival=0 bursts=C1,wait:fork1,C2,wait:fork2,C3,signal:fork2,signal:fork1,C1
+proc Phil2 arrival=0 bursts=C1,wait:fork2,C2,wait:fork3,C3,signal:fork3,signal:fork2,C1
+proc Phil3 arrival=0 bursts=C1,wait:fork3,C2,wait:fork4,C3,signal:fork4,signal:fork3,C1
+proc Phil4 arrival=0 bursts=C1,wait:fork4,C2,wait:fork0,C3,signal:fork0,signal:fork4,C1

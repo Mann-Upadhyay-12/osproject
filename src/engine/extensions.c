@@ -33,6 +33,8 @@ bool sim_inject_kill(sim_t *s, sim_pid_t pid) {
     for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
         sim_queue_remove(s, q, pid);
     }
+    sim_sem_forget(s, pid);
+    sim_release_all_resources(s, pid);
 
     p->state = PROC_TERMINATED;
     p->finish_tick = (int64_t)s->tick;
@@ -201,7 +203,7 @@ bool sim_detect_deadlock(sim_t *s) {
     return false;
 }
 
-static void release_all_resources(sim_t *s, sim_pid_t pid) {
+void sim_release_all_resources(sim_t *s, sim_pid_t pid) {
     for (int r = 0; r < s->num_resources; r++) {
         if (holds_resource(&s->procs[pid], r)) sim_release_resource(s, pid, r);
     }
@@ -219,7 +221,7 @@ bool sim_recover_deadlock_terminate(sim_t *s) {
     if (!has_deadlock(s)) return false;
 
     sim_pid_t victim = deadlock_victim(s);
-    release_all_resources(s, victim);
+    sim_release_all_resources(s, victim);
     sim_inject_kill(s, victim);
 
     s->total_deadlocks_recovered++;
@@ -242,7 +244,7 @@ bool sim_recover_deadlock_rollback(sim_t *s) {
     int slot = find_checkpoint_slot(s, victim);
     if (slot < 0) return sim_recover_deadlock_terminate(s);
 
-    release_all_resources(s, victim);
+    sim_release_all_resources(s, victim);
     sim_checkpoint_restore(s, victim, s->checkpoints[slot].checkpoint_id);
 
     s->total_deadlocks_recovered++;

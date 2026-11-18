@@ -50,7 +50,7 @@ bool layout_remove(layout_t *L, const char *key) {
     return true;
 }
 
-static void write_bursts(FILE *fp, const pcb_t *p) {
+static void write_bursts(FILE *fp, const sim_t *s, const pcb_t *p) {
     for (int i = 0; i < p->num_bursts; i++) {
         const burst_t *b = &p->bursts[i];
         if (i) fputc(',', fp);
@@ -62,6 +62,8 @@ static void write_bursts(FILE *fp, const pcb_t *p) {
             case BURST_IPC_SEND:   fprintf(fp, "S%d", b->target_id); break;
             case BURST_IPC_RECV:   fprintf(fp, "W%d", b->target_id); break;
             case BURST_CHECKPOINT: fputc('K', fp); break;
+            case BURST_SEM_WAIT:   fprintf(fp, "wait:%s", s->semaphores[b->target_id].name); break;
+            case BURST_SEM_SIGNAL: fprintf(fp, "signal:%s", s->semaphores[b->target_id].name); break;
         }
     }
 }
@@ -80,6 +82,9 @@ static void write_settings(FILE *fp, const sim_t *s) {
     for (int r = 0; r < s->num_resources; r++) {
         fprintf(fp, "resource %s %d\n", s->resources[r].name, s->resources[r].total_instances);
     }
+    for (int i = 0; i < s->num_semaphores; i++) {
+        fprintf(fp, "semaphore %s %d\n", s->semaphores[i].name, s->semaphores[i].initial_value);
+    }
 }
 
 static void write_page_refs(FILE *fp, const pcb_t *p) {
@@ -88,12 +93,12 @@ static void write_page_refs(FILE *fp, const pcb_t *p) {
     }
 }
 
-static void write_process(FILE *fp, const pcb_t *p) {
+static void write_process(FILE *fp, const sim_t *s, const pcb_t *p) {
     fprintf(fp, "proc %s arrival=%" PRIu64, p->name, p->arrival_tick);
     if (p->base_priority) fprintf(fp, " priority=%u", p->base_priority);
 
     fputs(" bursts=", fp);
-    write_bursts(fp, p);
+    write_bursts(fp, s, p);
 
     if (p->num_page_refs) {
         fputs(" pages=", fp);
@@ -119,7 +124,7 @@ int scenario_save(const sim_t *s, const layout_t *L, const char *path) {
     fputc('\n', fp);
 
     for (int i = 0; i < s->num_processes; i++) {
-        if (s->procs[i].state != PROC_UNUSED) write_process(fp, &s->procs[i]);
+        if (s->procs[i].state != PROC_UNUSED) write_process(fp, s, &s->procs[i]);
     }
     write_layout(fp, L);
 

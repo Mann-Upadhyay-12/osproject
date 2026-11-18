@@ -97,7 +97,7 @@ float explain_draw_card(const algo_info_t *a, float x, float y, float w) {
     return y - top;
 }
 
-static const char *process_name(const sim_t *s, int pid) {
+const char *explain_process_name(const sim_t *s, int pid) {
     return pid >= 0 && pid < s->num_processes ? s->procs[pid].name : "?";
 }
 
@@ -153,7 +153,7 @@ static narration_t *next_narration_slot(gui_t *g) {
     return oldest;
 }
 
-static void narrate(gui_t *g, const sim_event_t *ev, const char *fmt, ...) {
+void explain_narrate(gui_t *g, const sim_event_t *ev, const char *fmt, ...) {
     narration_t *e = next_narration_slot(g);
     e->tick = ev->tick;
     e->pid = ev->pid;
@@ -211,35 +211,35 @@ static void explain_dispatch(gui_t *g, const sim_event_t *ev) {
     dispatch_reason(s, p, why, sizeof(why));
 
     if (waiting[0]) {
-        narrate(g, ev, "%s picks %s for core %d: %s. Still waiting: %s.", policy, p->name, ev->core_id, why, waiting);
+        explain_narrate(g, ev, "%s picks %s for core %d: %s. Still waiting: %s.", policy, p->name, ev->core_id, why, waiting);
     } else {
-        narrate(g, ev, "%s picks %s for core %d: %s. Nobody else is waiting.", policy, p->name, ev->core_id, why);
+        explain_narrate(g, ev, "%s picks %s for core %d: %s. Nobody else is waiting.", policy, p->name, ev->core_id, why);
     }
 }
 
 static void explain_preempt(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
-    const char *n = process_name(s, ev->pid);
+    const char *n = explain_process_name(s, ev->pid);
     switch (s->sched_policy) {
         case SCHED_RR:
-            narrate(g, ev, "%s used its whole %u-tick quantum: preempted, back to the END of the ready queue.", n, s->default_quantum);
+            explain_narrate(g, ev, "%s used its whole %u-tick quantum: preempted, back to the END of the ready queue.", n, s->default_quantum);
             break;
         case SCHED_MLFQ:
-            narrate(g, ev, "%s used its whole quantum, so MLFQ treats it as CPU-bound: now in Q%d (lower priority, longer quantum).",
+            explain_narrate(g, ev, "%s used its whole quantum, so MLFQ treats it as CPU-bound: now in Q%d (lower priority, longer quantum).",
                  n, ev->detail1);
             break;
         case SCHED_SRTF:
-            narrate(g, ev, "%s preempted: a ready process needs only %d ticks, %s still needs %d. Shortest remaining time wins.",
+            explain_narrate(g, ev, "%s preempted: a ready process needs only %d ticks, %s still needs %d. Shortest remaining time wins.",
                  n, ev->detail2, n, ev->detail1);
             break;
         case SCHED_CFS:
-            narrate(g, ev, "%s's 2-tick slice ended (vruntime now %d); CFS switches to the lowest vruntime.", n, ev->detail1);
+            explain_narrate(g, ev, "%s's 2-tick slice ended (vruntime now %d); CFS switches to the lowest vruntime.", n, ev->detail1);
             break;
         case SCHED_BFS:
-            narrate(g, ev, "%s's 2-tick slice ended; new virtual deadline t%d, so earlier deadlines go first.", n, ev->detail1);
+            explain_narrate(g, ev, "%s's 2-tick slice ended; new virtual deadline t%d, so earlier deadlines go first.", n, ev->detail1);
             break;
         default:
-            narrate(g, ev, "%s's quantum expired: preempted and back to the ready queue.", n);
+            explain_narrate(g, ev, "%s's quantum expired: preempted and back to the ready queue.", n);
             break;
     }
 }
@@ -281,52 +281,59 @@ static void explain_evict(gui_t *g, const sim_event_t *ev) {
 
     char why[120];
     eviction_reason(s, ev, &s->frames[frame_idx], why, sizeof(why));
-    narrate(g, ev, "RAM is full. %s evicts page %d of %s from frame %d: %s.",
-            repl_get_ops(s->repl_policy)->name, ev->detail1, process_name(s, ev->pid), frame_idx, why);
+    explain_narrate(g, ev, "RAM is full. %s evicts page %d of %s from frame %d: %s.",
+            repl_get_ops(s->repl_policy)->name, ev->detail1, explain_process_name(s, ev->pid), frame_idx, why);
 }
 
 void explain_event(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
-    const char *n = process_name(s, ev->pid);
+    const char *n = explain_process_name(s, ev->pid);
     switch (ev->type) {
         case EVENT_PROC_ARRIVE:
-            if (s->sched_policy == SCHED_MLFQ) narrate(g, ev, "%s arrives and enters the top queue Q0.", n);
-            else narrate(g, ev, "%s arrives and joins the ready queue.", n);
+            if (s->sched_policy == SCHED_MLFQ) explain_narrate(g, ev, "%s arrives and enters the top queue Q0.", n);
+            else explain_narrate(g, ev, "%s arrives and joins the ready queue.", n);
             break;
         case EVENT_PROC_DISPATCH: explain_dispatch(g, ev); break;
         case EVENT_PROC_PREEMPT:  explain_preempt(g, ev); break;
         case EVENT_PROC_BLOCK_IO:
-            narrate(g, ev, "%s finished a CPU burst and starts %d ticks of I/O. It gives up the CPU (blocked, not ready).", n, ev->detail1);
+            explain_narrate(g, ev, "%s finished a CPU burst and starts %d ticks of I/O. It gives up the CPU (blocked, not ready).", n, ev->detail1);
             break;
         case EVENT_PROC_WAKE_IO:
-            narrate(g, ev, "%s's I/O is done: back to the ready queue.", n);
+            explain_narrate(g, ev, "%s's I/O is done: back to the ready queue.", n);
             break;
         case EVENT_PAGE_FAULT:
-            narrate(g, ev, "%s touches page %d, which is not in any frame: PAGE FAULT.", n, ev->detail1);
+            explain_narrate(g, ev, "%s touches page %d, which is not in any frame: PAGE FAULT.", n, ev->detail1);
             break;
         case EVENT_PROC_BLOCK_FAULT:
-            narrate(g, ev, "%s blocks for %d ticks while the disk reads page %d. The CPU is free for others.", n, s->disk_latency, ev->detail1);
+            explain_narrate(g, ev, "%s blocks for %d ticks while the disk reads page %d. The CPU is free for others.", n, s->disk_latency, ev->detail1);
             break;
         case EVENT_PAGE_EVICT: explain_evict(g, ev); break;
         case EVENT_PROC_WAKE_FAULT: {
             bool valid_page = ev->pid >= 0 && ev->detail1 >= 0 && ev->detail1 < PRISM_MAX_VIRTUAL_PAGES;
             int frame_idx = valid_page ? s->procs[ev->pid].pt[ev->detail1].frame_idx : -1;
-            narrate(g, ev, "Page %d of %s is now in frame %d; %s is ready again and will retry the access.",
+            explain_narrate(g, ev, "Page %d of %s is now in frame %d; %s is ready again and will retry the access.",
                     ev->detail1, n, frame_idx, n);
             break;
         }
         case EVENT_PROC_TERMINATE: {
             const pcb_t *p = &s->procs[ev->pid];
             int64_t turnaround = p->finish_tick - (int64_t)p->arrival_tick;
-            narrate(g, ev, "%s finished at t%" PRId64 ". Turnaround = %" PRId64 " - %" PRIu64 " = %" PRId64
+            explain_narrate(g, ev, "%s finished at t%" PRId64 ". Turnaround = %" PRId64 " - %" PRIu64 " = %" PRId64
                     " ticks; it waited %u ticks in the ready queue.",
                     n, p->finish_tick, p->finish_tick, (uint64_t)p->arrival_tick, turnaround, p->total_wait_time);
             break;
         }
-        case EVENT_PROC_KILLED: narrate(g, ev, "%s was killed (fault injection).", n); break;
+        case EVENT_PROC_KILLED: explain_narrate(g, ev, "%s was killed (fault injection).", n); break;
         case EVENT_PAGE_ACCESS: break;
+        case EVENT_SEM_WAIT:
+        case EVENT_SEM_BLOCKED:
+        case EVENT_SEM_SIGNAL:
+        case EVENT_SEM_WAKE:
+        case EVENT_STALLED:
+            explain_sync_event(g, ev);
+            break;
         default:
-            narrate(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");
+            explain_narrate(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");
             break;
     }
 }

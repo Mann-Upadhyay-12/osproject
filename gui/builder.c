@@ -233,14 +233,18 @@ static bool builder_commit(gui_t *g) {
     return g->builder.edit_pid >= 0 ? commit_edit(g, &spec) : commit_new(g, &spec);
 }
 
-static const char *control_burst_label(const builder_burst_t *burst) {
-    static char label[16];
+static const char *control_burst_label(const sim_t *s, const builder_burst_t *burst) {
+    static char label[48];
+    bool known_sem = burst->target >= 0 && burst->target < s->num_semaphores;
+    const char *sem = known_sem ? s->semaphores[burst->target].name : "?";
     switch (burst->kind) {
         case BURST_ACQUIRE:    snprintf(label, sizeof(label), "acquire R%d", burst->target); break;
         case BURST_RELEASE:    snprintf(label, sizeof(label), "release R%d", burst->target); break;
         case BURST_IPC_SEND:   snprintf(label, sizeof(label), "send to %d", burst->target); break;
         case BURST_IPC_RECV:   snprintf(label, sizeof(label), "recv from %d", burst->target); break;
         case BURST_CHECKPOINT: snprintf(label, sizeof(label), "checkpoint"); break;
+        case BURST_SEM_WAIT:   snprintf(label, sizeof(label), "wait(%s)", sem); break;
+        case BURST_SEM_SIGNAL: snprintf(label, sizeof(label), "signal(%s)", sem); break;
         default:               snprintf(label, sizeof(label), "?"); break;
     }
     return label;
@@ -312,7 +316,7 @@ static void scroll_to_last_burst(builder_t *b) {
     if (b->num_bursts > VISIBLE_BURSTS) b->scroll = b->num_bursts - VISIBLE_BURSTS;
 }
 
-static float draw_burst_list(builder_t *b, float x, float y, float width) {
+static float draw_burst_list(const sim_t *sim, builder_t *b, float x, float y, float width) {
     uint32_t cpu_total = 0, io_total = 0;
     for (int i = 0; i < b->num_bursts; i++) {
         if (b->bursts[i].kind == BURST_CPU) cpu_total += (uint32_t)b->bursts[i].duration;
@@ -336,7 +340,7 @@ static float draw_burst_list(builder_t *b, float x, float y, float width) {
         if (burst->kind == BURST_CPU || burst->kind == BURST_IO) {
             draw_timed_burst(burst, i, x, row_y);
         } else {
-            ui_text(x + 44, row_y + 6, 14, UI_ACCENT, "%s", control_burst_label(burst));
+            ui_text(x + 44, row_y + 6, 14, UI_ACCENT, "%s", control_burst_label(sim, burst));
         }
         if (i > 0 && ui_button(BID(400 + i), (Rectangle){x + width - 70, row_y, 28, 26}, "^")) to_raise = i;
         if (ui_button(BID(500 + i), (Rectangle){x + width - 38, row_y, 28, 26}, "x")) to_remove = i;
@@ -419,7 +423,7 @@ void builder_draw(gui_t *g) {
 
     y = draw_identity_fields(g, x, y);
     y = draw_pages_field(b, x, y, width);
-    y = draw_burst_list(b, x, y, width);
+    y = draw_burst_list(g->sim, b, x, y, width);
     y = draw_template_buttons(g, x, y);
     if (b->error[0]) ui_text(x, y, 14, UI_BAD, "%s", b->error);
 

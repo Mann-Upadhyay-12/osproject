@@ -55,6 +55,18 @@ void gui_step_tick(gui_t *g) {
     if (sim_is_done(g->sim)) return;
     sim_step(g->sim);
     record_history(g);
+    if (!g->replaying && sim_is_done(g->sim)) gui_report_end(g);
+}
+
+void gui_report_end(gui_t *g) {
+    if (sim_is_stalled(g->sim)) {
+        g->left_tab = LTAB_SYNC;
+        gui_status(g, true, "Deadlock at tick %" PRIu64 ": every live process is blocked. The Sync tab shows who waits for what; "
+                   "Reset (R) to edit.", (uint64_t)g->sim->tick);
+        return;
+    }
+    gui_status(g, false, "Finished at tick %" PRIu64 ". See the Results table, rewind with B, or open Compare (Tab).",
+               (uint64_t)g->sim->tick);
 }
 
 bool gui_start_running(gui_t *g) {
@@ -64,7 +76,7 @@ bool gui_start_running(gui_t *g) {
         return false;
     }
     if (sim_is_done(g->sim)) {
-        gui_status(g, false, "Run finished. Back (B) / click the Gantt chart to rewind, Reset (R) to edit.");
+        gui_report_end(g);
         return false;
     }
     g->mode = MODE_RUN;

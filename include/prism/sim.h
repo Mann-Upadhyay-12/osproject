@@ -19,6 +19,16 @@ typedef struct {
 } sim_resource_t;
 
 typedef struct {
+    char           name[PRISM_MAX_NAME_LEN];
+    int32_t        initial_value;
+    int32_t        value;
+    int32_t        num_waiters;
+    sim_pid_t      waiters[PRISM_MAX_PROCESSES];
+    uint32_t       total_waits;
+    uint32_t       total_blocks;
+} sim_semaphore_t;
+
+typedef struct {
     sim_pid_t      sender_pid;
     sim_pid_t      receiver_pid;
     int16_t        message_id;
@@ -67,6 +77,9 @@ typedef struct sim {
     int32_t            num_resources;
     sim_resource_t     resources[PRISM_MAX_RESOURCES];
 
+    int32_t            num_semaphores;
+    sim_semaphore_t    semaphores[PRISM_MAX_SEMAPHORES];
+
     int32_t            ipc_msg_count;
     ipc_message_t      ipc_messages[PRISM_MAX_MSG_QUEUE];
 
@@ -99,6 +112,7 @@ void sim_init(sim_t *s, int num_cores, int num_frames, int disk_latency,
               sched_policy_t sched, repl_policy_t repl, uint64_t seed);
 void sim_set_policy(sim_t *s, sched_policy_t sched, repl_policy_t repl);
 bool sim_is_done(const sim_t *s);
+bool sim_is_stalled(const sim_t *s);
 bool sim_step(sim_t *s);
 void sim_run(sim_t *s);
 
@@ -126,6 +140,13 @@ static inline void sim_restore(sim_t *dst, const sim_t *src) {
 int32_t sim_add_resource(sim_t *s, const char *name, int32_t instances);
 bool sim_acquire_resource(sim_t *s, sim_pid_t pid, int32_t resource_id);
 bool sim_release_resource(sim_t *s, sim_pid_t pid, int32_t resource_id);
+void sim_release_all_resources(sim_t *s, sim_pid_t pid);
+
+int32_t sim_add_semaphore(sim_t *s, const char *name, int32_t initial_value);
+int32_t sim_find_semaphore(const sim_t *s, const char *name);
+bool sim_sem_wait(sim_t *s, sim_pid_t pid, int32_t sem_id);
+bool sim_sem_signal(sim_t *s, sim_pid_t pid, int32_t sem_id);
+void sim_sem_forget(sim_t *s, sim_pid_t pid);
 
 bool sim_detect_deadlock(sim_t *s);
 bool sim_recover_deadlock_terminate(sim_t *s);

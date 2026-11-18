@@ -23,7 +23,7 @@ typedef struct {
 
 bool workload_load_file(const char *filepath, sim_t *sim, workload_config_t *cfg);
 
-bool workload_parse_bursts(proc_spec_t *spec, const char *bursts);
+bool workload_parse_bursts(proc_spec_t *spec, const char *bursts, const sim_t *sim);
 bool workload_parse_pages(proc_spec_t *spec, const char *pages, uint64_t seed, int pid);
 
 bool workload_generate_mixed(sim_t *sim, int num_procs, uint64_t seed);

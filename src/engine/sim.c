@@ -78,6 +78,7 @@ sim_pid_t sim_add_process(sim_t *s, const char *name, tick_t arrival_tick) {
     p->assigned_core = NO_CORE;
     p->waiting_resource = -1;
     p->waiting_ipc_pid = NO_PROCESS;
+    p->waiting_semaphore = -1;
     p->next_proc = NO_PROCESS;
 
     for (int page = 0; page < PRISM_MAX_VIRTUAL_PAGES; page++) {
@@ -127,9 +128,34 @@ void sim_log_event(sim_t *s, event_type_t type, sim_pid_t pid, int core, int d1,
     if (s->observer) s->observer(&ev, s->observer_user);
 }
 
+static bool all_processes_finished(const sim_t *s) {
+    return s->completed_processes + s->num_removed >= (uint32_t)s->num_processes;
+}
+
+static bool can_still_progress(proc_state_t state) {
+    switch (state) {
+        case PROC_NEW:
+        case PROC_READY:
+        case PROC_RUNNING:
+        case PROC_BLOCKED_IO:
+        case PROC_BLOCKED_FAULT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool sim_is_stalled(const sim_t *s) {
+    if (s->num_processes == 0 || all_processes_finished(s)) return false;
+    for (int i = 0; i < s->num_processes; i++) {
+        if (can_still_progress(s->procs[i].state)) return false;
+    }
+    return true;
+}
+
 bool sim_is_done(const sim_t *s) {
     if (s->num_processes == 0) return true;
-    return s->completed_processes + s->num_removed >= (uint32_t)s->num_processes;
+    return all_processes_finished(s) || sim_is_stalled(s);
 }
 
 const char *event_type_str(event_type_t type) {
@@ -159,6 +185,11 @@ const char *event_type_str(event_type_t type) {
         case EVENT_CHECKPOINT_SAVED:    return "CKPT_SAVED";
         case EVENT_CHECKPOINT_RESTORED: return "CKPT_RESTORED";
         case EVENT_FAULT_INJECTED:      return "FAULT_INJECTED";
+        case EVENT_SEM_WAIT:            return "SEM_WAIT";
+        case EVENT_SEM_BLOCKED:         return "SEM_BLOCKED";
+        case EVENT_SEM_SIGNAL:          return "SEM_SIGNAL";
+        case EVENT_SEM_WAKE:            return "SEM_WAKE";
+        case EVENT_STALLED:             return "STALLED";
         default:                        return "UNKNOWN";
     }
 }
@@ -172,6 +203,7 @@ const char *proc_state_str(proc_state_t state) {
         case PROC_BLOCKED_FAULT:    return "BLOCK_VM";
         case PROC_BLOCKED_RESOURCE: return "BLOCK_RES";
         case PROC_BLOCKED_IPC:      return "BLOCK_IPC";
+        case PROC_BLOCKED_SEM:      return "BLOCK_SEM";
         case PROC_TERMINATED:       return "TERM";
         default:                    return "UNUSED";
     }
@@ -257,6 +289,7 @@ static void terminate(sim_t *s, pcb_t *p, tick_t finish_tick, int core) {
     vacate_core(s, p);
     s->completed_processes++;
     sim_release_frames(s, p->pid);
+    sim_release_all_resources(s, p->pid);
     sim_log_event(s, EVENT_PROC_TERMINATE, p->pid, core, 0, 0);
 }
 
@@ -431,9 +464,35 @@ static void start_next_burst(sim_t *s, pcb_t *p, int core) {
             sim_checkpoint_create(s, p->pid);
             p->curr_burst_idx++;
             break;
+        case BURST_SEM_WAIT:
+            if (sim_sem_wait(s, p->pid, burst->target_id)) {
+                p->curr_burst_idx++;
+            } else {
+                block_and_yield(s, p);
+            }
+            break;
+        case BURST_SEM_SIGNAL:
+            sim_sem_signal(s, p->pid, burst->target_id);
+            p->curr_burst_idx++;
+            break;
         case BURST_CPU:
             break;
     }
+}
+
+static bool at_cpu_burst(const pcb_t *p) {
+    return has_more_bursts(p) && p->bursts[p->curr_burst_idx].kind == BURST_CPU;
+}
+
+static bool run_control_bursts(sim_t *s, pcb_t *p, int core, tick_t finish_tick) {
+    while (has_more_bursts(p) && !at_cpu_burst(p)) {
+        start_next_burst(s, p, core);
+        if (p->state != PROC_RUNNING) return false;
+    }
+    if (has_more_bursts(p)) return true;
+
+    terminate(s, p, finish_tick, core);
+    return false;
 }
 
 static void run_one_cpu_tick(sim_t *s, pcb_t *p, int core) {
@@ -443,11 +502,7 @@ static void run_one_cpu_tick(sim_t *s, pcb_t *p, int core) {
     if (burst->remaining > 0) return;
 
     p->curr_burst_idx++;
-    if (has_more_bursts(p)) {
-        start_next_burst(s, p, core);
-    } else {
-        terminate(s, p, s->tick + 1, core);
-    }
+    run_control_bursts(s, p, core, s->tick + 1);
 }
 
 static void execute_core(sim_t *s, int core) {
@@ -456,6 +511,8 @@ static void execute_core(sim_t *s, int core) {
     if (pid == NO_PROCESS) return;
 
     pcb_t *p = &s->procs[pid];
+    if (!at_cpu_burst(p) && !run_control_bursts(s, p, core, s->tick)) return;
+
     p->total_cpu_time++;
     s->core_busy_ticks[core]++;
 
@@ -465,6 +522,15 @@ static void execute_core(sim_t *s, int core) {
 
     bool still_on_core = s->running_pid[core] == pid;
     if (still_on_core) sched_get_ops(s->sched_policy)->on_tick(s, core, pid);
+}
+
+static int count_blocked(const sim_t *s) {
+    int blocked = 0;
+    for (int i = 0; i < s->num_processes; i++) {
+        proc_state_t state = s->procs[i].state;
+        blocked += state == PROC_BLOCKED_SEM || state == PROC_BLOCKED_RESOURCE || state == PROC_BLOCKED_IPC;
+    }
+    return blocked;
 }
 
 bool sim_step(sim_t *s) {
@@ -481,6 +547,7 @@ bool sim_step(sim_t *s) {
 
     s->tick++;
     s->gantt_count++;
+    if (sim_is_stalled(s)) sim_log_event(s, EVENT_STALLED, NO_PROCESS, NO_CORE, count_blocked(s), 0);
     return !sim_is_done(s);
 }
 

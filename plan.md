@@ -127,7 +127,9 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] GUI tab: address bits / page size / levels; bit-split bar, translation walk diagram, TLB with LRU and EAT, table memory vs flat table
 
 ## Milestone 17 — Semaphores + classic sync problems
-- [ ] Engine counting semaphores (`W:sem` / `S:sem` bursts), blocked state, stall detection; presets producer-consumer, dining philosophers, readers-writers
+- [x] Engine counting semaphores (`semaphore NAME VALUE`, bursts `wait:NAME` / `signal:NAME`, aliases `P:` / `V:`), FIFO waiter queue, `PROC_BLOCKED_SEM`, stall detection (`sim_is_stalled`, `EVENT_STALLED`)
+- [x] Presets `producer_consumer`, `dining_philosophers` (deadlocks), `dining_philosophers_fixed`, `readers_writers`; tests in `tests/test_sync.c`
+- [x] GUI: Sync tab (values, waiter queues, resources, who waits for what, deadlock banner), narration for wait/signal/wake/stall
 
 ## Milestone 18 — Real-time scheduling
 - [ ] Periodic tasks (period, exec, jobs), deadline misses, Rate Monotonic + EDF schedulers
