@@ -4,6 +4,7 @@
 #include "gui_state.h"
 #include "prism/contig.h"
 #include "prism/disk.h"
+#include "prism/paging.h"
 #include "prism/refstring.h"
 
 #define LAB_SETUP_W   300
@@ -13,6 +14,7 @@ typedef enum {
     LAB_REFSTRING = 0,
     LAB_DISK,
     LAB_MEMORY,
+    LAB_PAGING,
     LAB_COUNT
 } lab_kind_t;
 
@@ -62,11 +64,28 @@ typedef struct {
     int             hover_policy;
 } memory_lab_t;
 
+typedef struct {
+    paging_config_t config;
+    char            input[600];
+    char            split[32];
+    int             process_bytes;
+    int             tlb_ns;
+    int             memory_ns;
+    uint64_t        addresses[PAGING_MAX_ADDRESSES];
+    int             count;
+    paging_result_t result;
+    bool            valid;
+    bool            dirty;
+    char            message[160];
+    int             cursor;
+} paging_lab_t;
+
 typedef struct labs {
     int             active;
     refstring_lab_t refstring;
     disk_lab_t      disk;
     memory_lab_t    memory;
+    paging_lab_t    paging;
 } labs_t;
 
 void lab_refstring_init(refstring_lab_t *lab);
@@ -78,6 +97,9 @@ void lab_disk_draw(gui_t *g, disk_lab_t *lab, Rectangle r);
 
 void lab_memory_init(memory_lab_t *lab);
 void lab_memory_draw(gui_t *g, memory_lab_t *lab, Rectangle r);
+
+void lab_paging_init(paging_lab_t *lab);
+void lab_paging_draw(gui_t *g, paging_lab_t *lab, Rectangle r);
 
 void lab_draw_section(float x, float *y, const char *title);
 void lab_draw_hint(float x, float *y, float w, const char *text);

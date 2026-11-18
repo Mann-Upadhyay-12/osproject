@@ -123,8 +123,8 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] GUI tab: request script, memory bar per step, failed requests, fragmentation numbers
 
 ## Milestone 16 — Address translation lab
-- [ ] Core `paging.[ch]`: split an address into level indexes + offset, table sizes, internal fragmentation, multi-level walk; tests
-- [ ] GUI tab: address bits / page size / levels; translation walk diagram
+- [x] Core `paging.[ch]`: split an address into level indexes + offset, table sizes, internal fragmentation, multi-level walk; tests
+- [x] GUI tab: address bits / page size / levels; bit-split bar, translation walk diagram, TLB with LRU and EAT, table memory vs flat table
 
 ## Milestone 17 — Semaphores + classic sync problems
 - [ ] Engine counting semaphores (`W:sem` / `S:sem` bursts), blocked state, stall detection; presets producer-consumer, dining philosophers, readers-writers

@@ -1,5 +1,7 @@
 #include "prism/contig.h"
 #include "prism/disk.h"
+#include "prism/paging.h"
+#include <math.h>
 #include "prism/refstring.h"
 #include "test_harness.h"
 #include <string.h>
@@ -297,6 +299,119 @@ static void test_contig_parse_errors(void) {
     TEST_PASS();
 }
 
+static paging_config_t two_level_32bit(void) {
+    paging_config_t c = {.address_bits = 32, .offset_bits = 12, .levels = 2, .level_bits = {10, 10},
+                         .pte_bytes = 4, .physical_bits = 32, .tlb_entries = 0};
+    return c;
+}
+
+static void test_paging_sizes_and_split(void) {
+    TEST_CASE("Paging lab: 32-bit, 4 KB pages: 4 MB flat table, 10/10/12 split");
+
+    paging_config_t c = two_level_32bit();
+    ASSERT_EQ(paging_validate(&c), PAGING_OK);
+
+    paging_sizes_t s;
+    paging_compute_sizes(&c, &s);
+    ASSERT_TRUE(s.num_pages == (1ull << 20));
+    ASSERT_TRUE(s.flat_table_bytes == 4ull * 1024 * 1024);
+    ASSERT_TRUE(s.table_bytes[0] == 4096 && s.table_bytes[1] == 4096);
+    ASSERT_TRUE(s.tables_when_full[1] == 1024);
+    ASSERT_TRUE(s.full_tree_bytes == 4096ull + 1024ull * 4096ull);
+
+    uint64_t index[PAGING_MAX_LEVELS], offset;
+    paging_split(&c, 0x12345678u, index, &offset);
+    ASSERT_TRUE(index[0] == 0x48 && index[1] == 0x345 && offset == 0x678);
+
+    paging_config_t x86 = {.address_bits = 48, .offset_bits = 12, .levels = 4, .pte_bytes = 8, .physical_bits = 52};
+    paging_split_evenly(&x86);
+    ASSERT_EQ(x86.level_bits[0], 9);
+    ASSERT_EQ(x86.level_bits[3], 9);
+    ASSERT_EQ(paging_validate(&x86), PAGING_OK);
+    paging_compute_sizes(&x86, &s);
+    ASSERT_TRUE(s.table_bytes[2] == 4096);
+
+    paging_config_t uneven = {.address_bits = 32, .offset_bits = 12, .levels = 3};
+    paging_split_evenly(&uneven);
+    ASSERT_TRUE(uneven.level_bits[0] == 7 && uneven.level_bits[1] == 7 && uneven.level_bits[2] == 6);
+    TEST_PASS();
+}
+
+static void test_paging_fragmentation_and_eat(void) {
+    TEST_CASE("Paging lab: internal fragmentation 962 bytes; EAT 12 ns / 10.1 ns");
+
+    paging_config_t c = two_level_32bit();
+    c.offset_bits = 11;
+    c.level_bits[0] = 11;
+    ASSERT_TRUE(paging_pages_needed(&c, 72766) == 36);
+    ASSERT_TRUE(paging_internal_fragmentation(&c, 72766) == 962);
+    ASSERT_TRUE(paging_internal_fragmentation(&c, 4096) == 0);
+
+    ASSERT_TRUE(fabs(paging_effective_access_time(1, 0.80, 0, 10) - 12.0) < 1e-9);
+    ASSERT_TRUE(fabs(paging_effective_access_time(1, 0.99, 0, 10) - 10.1) < 1e-9);
+    ASSERT_TRUE(fabs(paging_effective_access_time(2, 0.0, 0, 100) - 300.0) < 1e-9);
+    TEST_PASS();
+}
+
+static void test_paging_walk_and_tlb(void) {
+    TEST_CASE("Paging lab: sparse walk allocates 3 tables, TLB hits skip the walk");
+
+    paging_config_t c = two_level_32bit();
+    c.tlb_entries = 2;
+    uint64_t addrs[PAGING_MAX_ADDRESSES];
+    int count;
+    ASSERT_EQ(paging_parse_addresses("0x0 0x1004, 4096; 0xFFFFF000 0x10 0x2000 0x0", &c, addrs, PAGING_MAX_ADDRESSES,
+                                     &count, NULL, 0), PAGING_OK);
+    ASSERT_EQ(count, 7);
+
+    static paging_result_t r;
+    ASSERT_EQ(paging_translate_all(&c, addrs, count, &r), PAGING_OK);
+    ASSERT_TRUE(r.steps[0].page_created && r.steps[0].table_created[1] && !r.steps[0].tlb_hit);
+    ASSERT_EQ(r.steps[0].memory_accesses, 3);
+    ASSERT_TRUE(r.steps[1].page_created && !r.steps[1].table_created[1]);
+    ASSERT_TRUE(r.steps[2].tlb_hit);
+    ASSERT_EQ(r.steps[2].memory_accesses, 1);
+    ASSERT_TRUE(r.steps[2].paddr == ((r.steps[1].frame << 12) | 0));
+    ASSERT_TRUE(r.steps[1].paddr == ((r.steps[1].frame << 12) | 4));
+    ASSERT_TRUE(r.steps[3].table_created[1]);
+    ASSERT_TRUE(r.steps[3].tlb_victim_slot >= 0 && r.steps[3].tlb_victim_vpn == 0);
+    ASSERT_FALSE(r.steps[4].tlb_hit);
+    ASSERT_FALSE(r.steps[4].page_created);
+    ASSERT_TRUE(r.steps[4].frame == r.steps[0].frame);
+
+    ASSERT_EQ(r.tables_per_level[0], 1);
+    ASSERT_EQ(r.tables_per_level[1], 2);
+    ASSERT_EQ(r.pages_mapped, 4);
+    ASSERT_TRUE(r.table_bytes_used == 3 * 4096);
+    ASSERT_TRUE(r.steps[0].frame != r.steps[1].frame);
+    TEST_PASS();
+}
+
+static void test_paging_validation(void) {
+    TEST_CASE("Paging lab: configuration and address validation");
+
+    paging_config_t c = two_level_32bit();
+    uint64_t addrs[4];
+    int count;
+    char bad[64];
+    ASSERT_EQ(paging_parse_addresses("0x1 zz", &c, addrs, 4, &count, bad, sizeof(bad)), PAGING_ERR_SYNTAX);
+    ASSERT_STR_EQ(bad, "zz");
+    ASSERT_EQ(paging_parse_addresses("0x100000000", &c, addrs, 4, &count, NULL, 0), PAGING_ERR_RANGE);
+    ASSERT_EQ(paging_parse_addresses("  ", &c, addrs, 4, &count, NULL, 0), PAGING_ERR_EMPTY);
+    ASSERT_EQ(paging_parse_addresses("1 2 3 4 5", &c, addrs, 4, &count, NULL, 0), PAGING_ERR_TOO_MANY);
+
+    paging_config_t bad_split = c;
+    bad_split.level_bits[1] = 9;
+    ASSERT_EQ(paging_validate(&bad_split), PAGING_ERR_SPLIT);
+    paging_config_t bad_phys = c;
+    bad_phys.physical_bits = 14;
+    ASSERT_EQ(paging_validate(&bad_phys), PAGING_ERR_PHYSICAL);
+    paging_config_t bad_levels = c;
+    bad_levels.levels = 5;
+    ASSERT_EQ(paging_validate(&bad_levels), PAGING_ERR_LEVELS);
+    TEST_PASS();
+}
+
 int main(void) {
     TEST_SUITE_BEGIN("PRISM Labs Suite");
 
@@ -310,6 +425,10 @@ int main(void) {
     test_contig_textbook_partitions();
     test_contig_free_merge_and_compact();
     test_contig_parse_errors();
+    test_paging_sizes_and_split();
+    test_paging_fragmentation_and_eat();
+    test_paging_walk_and_tlb();
+    test_paging_validation();
 
     TEST_SUITE_SUMMARY();
     return g_tests_failed == 0 ? 0 : 1;
