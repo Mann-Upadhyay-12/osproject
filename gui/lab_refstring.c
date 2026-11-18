@@ -1,5 +1,4 @@
 #include "labs.h"
-#include "compare.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -138,14 +137,8 @@ static float draw_frames_section(refstring_lab_t *lab, float x, float y) {
 static float draw_policy_section(refstring_lab_t *lab, float x, float y, float w) {
     lab_draw_section(x, &y, "3. POLICIES");
     for (int p = 0; p < REPL_COUNT; p++) {
-        Rectangle row = {x, y, w, 22};
-        if (CheckCollisionPointRec(GetMousePosition(), row)) lab->hover_policy = p;
-
-        DrawRectangleRounded((Rectangle){x, y + 5, 12, 12}, 0.3f, 4, cmp_alg_color(p));
-        if (ui_checkbox(ID(30 + p), (Rectangle){x + 20, y, w - 20, 22}, repl_get_ops((repl_policy_t)p)->name, &lab->enabled[p])) {
-            lab->dirty = true;
-        }
-        y += 24;
+        const char *name = repl_get_ops((repl_policy_t)p)->name;
+        if (lab_policy_toggle(ID(30 + p), x, &y, w, p, name, &lab->enabled[p], &lab->hover_policy)) lab->dirty = true;
     }
     return y + 10;
 }
@@ -162,19 +155,10 @@ static float draw_trace_section(refstring_lab_t *lab, float x, float y, float w)
 }
 
 static void draw_policy_card(refstring_lab_t *lab, Rectangle panel, float x, float y, float w) {
-    Rectangle card = {panel.x + 1, y, panel.width - 2, panel.y + panel.height - y - 1};
-    if (card.height < 60) return;
-
-    DrawLine((int)x, (int)y - 4, (int)(x + w), (int)y - 4, UI_BORDER);
-    ui_scissor_push(card);
-    if (lab->hover_policy >= 0) {
-        explain_draw_card(explain_repl_info((repl_policy_t)lab->hover_policy), x, y + 4, w);
-    } else {
-        ui_text_wrapped(x, y + 4, w, 13, UI_TEXT_DIM,
-                        "Hover a policy to see how it chooses a victim. Each table is the classic textbook "
-                        "frame table: one column per reference, red = page fault, green outline = hit.");
-    }
-    ui_scissor_pop();
+    const algo_info_t *info = lab->hover_policy >= 0 ? explain_repl_info((repl_policy_t)lab->hover_policy) : NULL;
+    lab_card(panel, x, y, w, info,
+             "Hover a policy to see how it chooses a victim. Each table is the classic textbook "
+             "frame table: one column per reference, red = page fault, green outline = hit.");
 }
 
 static void draw_setup_panel(refstring_lab_t *lab, Rectangle r) {
@@ -213,26 +197,10 @@ static void draw_summary(refstring_lab_t *lab, float x, float y) {
         double rate = lab->count ? 100.0 * result->faults / lab->count : 0.0;
 
         const char *text = TextFormat("%s  %d faults (%.0f%%)", repl_get_ops((repl_policy_t)p)->name, result->faults, rate);
-        DrawRectangleRounded((Rectangle){x, y + 3, 12, 12}, 0.3f, 4, cmp_alg_color(p));
+        lab_legend_swatch(x, y + 3, p);
         ui_text(x + 18, y, 15, is_best ? UI_GOOD : UI_TEXT, "%s", text);
         x += ui_text_width(text, 15) + 40;
     }
-}
-
-static void draw_step_controls(refstring_lab_t *lab, float x, float y) {
-    if (ui_button(ID(50), (Rectangle){x, y, 36, 24}, "|<")) lab->cursor = 0;
-    if (ui_button(ID(51), (Rectangle){x + 40, y, 36, 24}, "<") && lab->cursor > 0) lab->cursor--;
-    if (ui_button(ID(52), (Rectangle){x + 80, y, 36, 24}, ">") && lab->cursor < lab->count) lab->cursor++;
-    if (ui_button(ID(53), (Rectangle){x + 120, y, 36, 24}, ">|")) lab->cursor = lab->count;
-    ui_text(x + 166, y + 4, 14, UI_TEXT_DIM, "showing %d of %d references  (Left / Right keys)", lab->cursor, lab->count);
-}
-
-static void handle_step_keys(refstring_lab_t *lab) {
-    if (ui_text_focused()) return;
-    if ((IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) && lab->cursor < lab->count) lab->cursor++;
-    if ((IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT)) && lab->cursor > 0) lab->cursor--;
-    if (IsKeyPressed(KEY_HOME)) lab->cursor = 0;
-    if (IsKeyPressed(KEY_END)) lab->cursor = lab->count;
 }
 
 static float table_height(const refstring_lab_t *lab) {
@@ -279,7 +247,7 @@ static void draw_policy_table(refstring_lab_t *lab, int policy, Rectangle area, 
     const refstr_result_t *result = &lab->results[policy];
     float x0 = area.x + 8;
 
-    DrawRectangleRounded((Rectangle){x0, top + 5, 12, 12}, 0.3f, 4, cmp_alg_color(policy));
+    lab_legend_swatch(x0, top + 5, policy);
     ui_text(x0 + 18, top + 2, 15, UI_TEXT, "%s", repl_get_ops((repl_policy_t)policy)->name);
     ui_text(x0 + 130, top + 4, 13, UI_TEXT_DIM, "%d faults so far", faults_until(result, lab->cursor));
     top += TITLE_H;
@@ -377,7 +345,7 @@ static void draw_explanation(refstring_lab_t *lab, Rectangle r) {
         if (!lab->enabled[p]) continue;
         char line[220];
         describe_step(&lab->results[p], p, step, line, sizeof(line));
-        DrawRectangleRounded((Rectangle){r.x + 10, y + 3, 10, 10}, 0.3f, 4, cmp_alg_color(p));
+        lab_legend_swatch(r.x + 10, y + 2, p);
         ui_text(r.x + 26, y, 13, UI_TEXT_DIM, "%s:", repl_get_ops((repl_policy_t)p)->name);
         ui_text_clipped((Rectangle){r.x + 90, y, r.width - 100, 16}, 13, lab->results[p].steps[step].fault ? UI_TEXT : UI_GOOD, line);
         y += 17;
@@ -416,7 +384,7 @@ static void draw_tables(refstring_lab_t *lab, Rectangle area) {
         else lab->scroll_y -= wheel * 40;
     }
 
-    handle_step_keys(lab);
+    lab_step_keys(&lab->cursor, lab->count);
     if (lab->cursor != previous_cursor) follow_cursor(lab, visible_w);
     clamp_scroll(lab, visible_w, content_h, area.height);
 
@@ -439,7 +407,7 @@ static void draw_results(refstring_lab_t *lab, Rectangle r) {
     }
 
     draw_summary(lab, r.x + 14, r.y + 10);
-    draw_step_controls(lab, r.x + 14, r.y + 36);
+    lab_step_controls(ID(50), r.x + 14, r.y + 36, &lab->cursor, lab->count, "references");
 
     Rectangle tables = {r.x, r.y + 70, r.width, r.height - 70 - EXPLAIN_H - 24};
     draw_tables(lab, tables);

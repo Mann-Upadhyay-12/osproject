@@ -1,3 +1,4 @@
+#include "prism/disk.h"
 #include "prism/refstring.h"
 #include "test_harness.h"
 #include <string.h>
@@ -100,6 +101,101 @@ static void test_trace_import(void) {
     TEST_PASS();
 }
 
+static disk_input_t textbook_disk(disk_direction_t direction) {
+    disk_input_t in;
+    memset(&in, 0, sizeof(in));
+    in.cylinders = 200;
+    in.head = 53;
+    in.direction = direction;
+    disk_parse_requests("98 183 37 122 14 124 65 67", &in);
+    return in;
+}
+
+static int disk_total(disk_policy_t policy, disk_direction_t direction) {
+    disk_input_t in = textbook_disk(direction);
+    disk_result_t out;
+    if (disk_schedule(policy, &in, &out) != DISK_OK) return -1;
+    return out.total_movement;
+}
+
+static void test_disk_textbook_totals(void) {
+    TEST_CASE("Disk lab: textbook head movement (FCFS 640, SSTF 236, SCAN 236, C-SCAN 382, LOOK 299, C-LOOK 322)");
+
+    ASSERT_EQ(disk_total(DISK_FCFS, DISK_TOWARD_HIGH), 640);
+    ASSERT_EQ(disk_total(DISK_SSTF, DISK_TOWARD_HIGH), 236);
+    ASSERT_EQ(disk_total(DISK_SCAN, DISK_TOWARD_LOW), 236);
+    ASSERT_EQ(disk_total(DISK_SCAN, DISK_TOWARD_HIGH), 331);
+    ASSERT_EQ(disk_total(DISK_CSCAN, DISK_TOWARD_HIGH), 382);
+    ASSERT_EQ(disk_total(DISK_LOOK, DISK_TOWARD_HIGH), 299);
+    ASSERT_EQ(disk_total(DISK_CLOOK, DISK_TOWARD_HIGH), 322);
+    TEST_PASS();
+}
+
+static void test_disk_service_order(void) {
+    TEST_CASE("Disk lab: service order, edges and return jumps");
+
+    disk_input_t in = textbook_disk(DISK_TOWARD_HIGH);
+    disk_result_t out;
+
+    ASSERT_EQ(disk_schedule(DISK_SSTF, &in, &out), DISK_OK);
+    static const int sstf_order[] = {65, 67, 37, 14, 98, 122, 124, 183};
+    ASSERT_EQ(out.num_stops, 8);
+    for (int i = 0; i < 8; i++) ASSERT_EQ(out.stops[i].cylinder, sstf_order[i]);
+
+    ASSERT_EQ(disk_schedule(DISK_CSCAN, &in, &out), DISK_OK);
+    ASSERT_EQ(out.return_movement, 199);
+    ASSERT_EQ(out.stops[6].kind, DISK_STOP_EDGE);
+    ASSERT_EQ(out.stops[6].cylinder, 199);
+    ASSERT_EQ(out.stops[7].kind, DISK_STOP_JUMP);
+    ASSERT_EQ(out.stops[7].cylinder, 0);
+
+    ASSERT_EQ(disk_schedule(DISK_CLOOK, &in, &out), DISK_OK);
+    ASSERT_EQ(out.return_movement, 169);
+
+    in = textbook_disk(DISK_TOWARD_LOW);
+    ASSERT_EQ(disk_schedule(DISK_SCAN, &in, &out), DISK_OK);
+    ASSERT_EQ(out.stops[2].kind, DISK_STOP_EDGE);
+    ASSERT_EQ(out.stops[2].cylinder, 0);
+    ASSERT_EQ(disk_distance_moved(&out, 3), 53);
+    TEST_PASS();
+}
+
+static void test_disk_edge_cases(void) {
+    TEST_CASE("Disk lab: ties, one-sided queues and validation");
+
+    disk_input_t in;
+    memset(&in, 0, sizeof(in));
+    in.cylinders = 100;
+    in.head = 50;
+    disk_result_t out;
+
+    disk_parse_requests("60 40", &in);
+    ASSERT_EQ(disk_schedule(DISK_SSTF, &in, &out), DISK_OK);
+    ASSERT_EQ(out.stops[0].cylinder, 40);
+
+    disk_parse_requests("70 90", &in);
+    in.direction = DISK_TOWARD_HIGH;
+    ASSERT_EQ(disk_schedule(DISK_SCAN, &in, &out), DISK_OK);
+    ASSERT_EQ(out.num_stops, 2);
+    ASSERT_EQ(out.total_movement, 40);
+    ASSERT_EQ(disk_schedule(DISK_CSCAN, &in, &out), DISK_OK);
+    ASSERT_EQ(out.return_movement, 0);
+
+    ASSERT_EQ(disk_parse_requests("12 x", &in), DISK_ERR_SYNTAX);
+    ASSERT_EQ(disk_parse_requests("", &in), DISK_ERR_EMPTY);
+    disk_parse_requests("150", &in);
+    ASSERT_EQ(disk_schedule(DISK_FCFS, &in, &out), DISK_ERR_RANGE);
+    in.head = 100;
+    disk_parse_requests("10", &in);
+    ASSERT_EQ(disk_schedule(DISK_FCFS, &in, &out), DISK_ERR_HEAD);
+
+    disk_policy_t policy;
+    ASSERT_TRUE(disk_lookup("c-scan", &policy));
+    ASSERT_EQ(policy, DISK_CSCAN);
+    ASSERT_FALSE(disk_lookup("elevator", &policy));
+    TEST_PASS();
+}
+
 int main(void) {
     TEST_SUITE_BEGIN("PRISM Labs Suite");
 
@@ -107,6 +203,9 @@ int main(void) {
     test_refstring_step_details();
     test_refstring_parse_errors();
     test_trace_import();
+    test_disk_textbook_totals();
+    test_disk_service_order();
+    test_disk_edge_cases();
 
     TEST_SUITE_SUMMARY();
     return g_tests_failed == 0 ? 0 : 1;

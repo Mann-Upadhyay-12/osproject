@@ -115,8 +115,8 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] GUI: third top-level view **Labs** (Tab cycles Simulate → Compare → Labs); reference-string tab with presets, side-by-side frame tables, step cursor with per-policy eviction reasons, drop a trace file
 
 ## Milestone 14 — Disk scheduling lab
-- [ ] Core `disk.[ch]`: FCFS, SSTF, SCAN, C-SCAN, LOOK, C-LOOK behind an ops table; textbook totals as tests
-- [ ] GUI tab: request queue, head, direction; seek path chart and total head movement per policy
+- [x] Core `disk.[ch]`: FCFS, SSTF, SCAN, C-SCAN, LOOK, C-LOOK behind an ops table; textbook totals as tests (640 / 236 / 236 / 382 / 299 / 322)
+- [x] GUI tab: request queue, head, direction; one seek diagram per policy, request-by-request cursor with the reason for each move
 
 ## Milestone 15 — Contiguous memory allocation lab
 - [ ] Core `contig.[ch]`: first / best / worst / next fit, free with hole merging, compaction, external fragmentation stats; tests

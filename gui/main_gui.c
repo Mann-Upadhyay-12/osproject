@@ -215,7 +215,7 @@ static void frame(gui_t *g, float dt, bool *space_used) {
 static void print_usage(void) {
     printf("usage: prism-gui [scenario] [--shot out.png] [--ticks N] [--select NODE] [--builder]\n"
            "                 [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]\n"
-           "                 [--lab refstring]\n");
+           "                 [--lab refstring|disk]\n");
 }
 
 static bool parse_args(int argc, char **argv, gui_args_t *a) {
