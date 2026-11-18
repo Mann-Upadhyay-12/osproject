@@ -81,6 +81,7 @@ sim_pid_t sim_add_process(sim_t *s, const char *name, tick_t arrival_tick) {
     p->waiting_semaphore = -1;
     p->num_jobs = 1;
     p->last_core = NO_CORE;
+    p->parent_pid = PRISM_INIT_PID;
     p->next_proc = NO_PROCESS;
 
     for (int page = 0; page < PRISM_MAX_VIRTUAL_PAGES; page++) {
@@ -130,8 +131,14 @@ void sim_log_event(sim_t *s, event_type_t type, sim_pid_t pid, int core, int d1,
     if (s->observer) s->observer(&ev, s->observer_user);
 }
 
+static uint32_t count_unborn(const sim_t *s) {
+    uint32_t unborn = 0;
+    for (int i = 0; i < s->num_processes; i++) unborn += sim_tree_unborn(s, &s->procs[i]);
+    return unborn;
+}
+
 static bool all_processes_finished(const sim_t *s) {
-    return s->completed_processes + s->num_removed >= (uint32_t)s->num_processes;
+    return s->completed_processes + s->num_removed + count_unborn(s) >= (uint32_t)s->num_processes;
 }
 
 static bool can_still_progress(proc_state_t state) {
@@ -151,7 +158,8 @@ static bool can_still_progress(proc_state_t state) {
 bool sim_is_stalled(const sim_t *s) {
     if (s->num_processes == 0 || all_processes_finished(s)) return false;
     for (int i = 0; i < s->num_processes; i++) {
-        if (can_still_progress(s->procs[i].state)) return false;
+        const pcb_t *p = &s->procs[i];
+        if (can_still_progress(p->state) && !p->awaiting_fork) return false;
     }
     return true;
 }
@@ -247,6 +255,7 @@ static void terminate(sim_t *s, pcb_t *p, tick_t finish_tick, int core) {
     sim_release_frames(s, p->pid);
     sim_release_all_resources(s, p->pid);
     sim_log_event(s, EVENT_PROC_TERMINATE, p->pid, core, 0, 0);
+    sim_tree_on_exit(s, p);
 }
 
 static bool has_more_bursts(const pcb_t *p) {
@@ -268,7 +277,7 @@ static void release_job(sim_t *s, pcb_t *p, tick_t release) {
 static void admit_arrivals(sim_t *s) {
     for (int i = 0; i < s->num_processes; i++) {
         pcb_t *p = &s->procs[i];
-        if (p->state != PROC_NEW || p->arrival_tick > s->tick) continue;
+        if (p->state != PROC_NEW || p->awaiting_fork || p->arrival_tick > s->tick) continue;
 
         if (is_periodic(p)) {
             sim_log_event(s, EVENT_PROC_ARRIVE, p->pid, NO_CORE, 0, 0);
@@ -507,6 +516,17 @@ static void start_next_burst(sim_t *s, pcb_t *p, int core) {
         case BURST_SEM_SIGNAL:
             sim_sem_signal(s, p->pid, burst->target_id);
             p->curr_burst_idx++;
+            break;
+        case BURST_FORK:
+            sim_tree_fork(s, p);
+            p->curr_burst_idx++;
+            break;
+        case BURST_WAIT_CHILD:
+            if (sim_tree_wait(s, p)) {
+                p->curr_burst_idx++;
+            } else {
+                block_and_yield(s, p);
+            }
             break;
         case BURST_CPU:
             break;

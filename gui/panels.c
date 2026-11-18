@@ -144,11 +144,11 @@ void panel_toolbar(gui_t *g, Rectangle r) {
 
 static float draw_state_legend(float x, float y) {
     static const proc_state_t states[] = {
-        PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED_IO, PROC_BLOCKED_FAULT, PROC_BLOCKED_SEM, PROC_SLEEPING,
-        PROC_TERMINATED
+        PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED_IO, PROC_BLOCKED_FAULT, PROC_BLOCKED_SEM, PROC_BLOCKED_WAIT,
+        PROC_SLEEPING, PROC_TERMINATED
     };
     static const char *labels[] = {
-        "new", "ready", "running", "blocked: I/O", "blocked: page fault", "blocked: semaphore", "sleeping: next period", "terminated"
+        "new", "ready", "running", "blocked: I/O", "blocked: page fault", "blocked: semaphore", "blocked: wait()", "sleeping: next period", "terminated"
     };
     enum { NUM_STATES = sizeof(labels) / sizeof(labels[0]) };
 
@@ -238,6 +238,10 @@ Color event_color(event_type_t type) {
         case EVENT_DEADLINE_MISS:    return UI_BAD;
         case EVENT_JOB_COMPLETE:     return UI_GOOD;
         case EVENT_JOB_RELEASE:      return (Color){130, 180, 255, 255};
+        case EVENT_FORK:             return UI_GOOD;
+        case EVENT_ZOMBIE:
+        case EVENT_ORPHAN:           return (Color){240, 175, 60, 255};
+        case EVENT_REAP:             return UI_TEXT_DIM;
         default:                     return (Color){200, 150, 240, 255};
     }
 }
@@ -265,6 +269,11 @@ static void describe_event(const gui_t *g, const sim_event_t *e, char *out, size
         case EVENT_JOB_COMPLETE:     snprintf(out, size, e->detail2 > 0 ? "job %d, %d late" : "job %d, %d early", e->detail1, e->detail2 > 0 ? e->detail2 : -e->detail2); break;
         case EVENT_DEADLINE_MISS:    snprintf(out, size, "job %d missed t%d", e->detail1, e->detail2); break;
         case EVENT_MIGRATE:          snprintf(out, size, "core %d -> core %d", e->detail1, e->detail2); break;
+        case EVENT_FORK:             snprintf(out, size, "creates %s", explain_process_name(g->sim, e->detail1)); break;
+        case EVENT_WAIT_BLOCKED:     snprintf(out, size, "wait(): %d children still running", e->detail1); break;
+        case EVENT_ZOMBIE:           snprintf(out, size, "exited, not yet waited for"); break;
+        case EVENT_REAP:             snprintf(out, size, "reaped by %s", e->detail1 < 0 ? "init" : explain_process_name(g->sim, e->detail1)); break;
+        case EVENT_ORPHAN:           snprintf(out, size, "parent exited, adopted by init"); break;
         default:                     out[0] = '\0'; break;
     }
 }
@@ -363,14 +372,15 @@ static Rectangle tab_pane(Rectangle r, int first_id, const char *const *names, i
 }
 
 void panel_bottom_left(gui_t *g, Rectangle r) {
-    static const char *names[LTAB_COUNT] = {"Explain", "Event list", "Sync", "Real-time"};
+    static const char *names[LTAB_COUNT] = {"Explain", "Event list", "Sync", "Real-time", "Tree"};
     Rectangle body = tab_pane(r, 520, names, LTAB_COUNT, &g->left_tab);
 
     switch (g->left_tab) {
         case LTAB_EXPLAIN: panel_explain(g, body); break;
         case LTAB_EVENTS:  panel_events(g, body); break;
         case LTAB_SYNC:    panel_sync(g, body); break;
-        default:           panel_realtime(g, body); break;
+        case LTAB_REALTIME: panel_realtime(g, body); break;
+        default:           panel_tree(g, body); break;
     }
 }
 

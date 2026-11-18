@@ -374,6 +374,13 @@ void explain_event(gui_t *g, const sim_event_t *ev) {
         case EVENT_DEADLINE_MISS:
             explain_realtime_event(g, ev);
             break;
+        case EVENT_FORK:
+        case EVENT_WAIT_BLOCKED:
+        case EVENT_ZOMBIE:
+        case EVENT_REAP:
+        case EVENT_ORPHAN:
+            explain_tree_event(g, ev);
+            break;
         case EVENT_MIGRATE:
             explain_narrate(g, ev, "%s moves from core %d's queue to core %d's: %s.", n, ev->detail1, ev->detail2,
                             s->running_pid[ev->detail2] == -1 ? "core is idle and steals work from the busiest queue"

@@ -152,6 +152,13 @@ bool sim_sem_wait(sim_t *s, sim_pid_t pid, int32_t sem_id);
 bool sim_sem_signal(sim_t *s, sim_pid_t pid, int32_t sem_id);
 void sim_sem_forget(sim_t *s, sim_pid_t pid);
 
+#define PRISM_INIT_PID (-1)
+bool sim_tree_fork(sim_t *s, pcb_t *parent);
+bool sim_tree_wait(sim_t *s, pcb_t *parent);
+void sim_tree_on_exit(sim_t *s, pcb_t *p);
+bool sim_tree_unborn(const sim_t *s, const pcb_t *p);
+int  sim_tree_live_children(const sim_t *s, sim_pid_t parent);
+
 bool sim_detect_deadlock(sim_t *s);
 bool sim_recover_deadlock_terminate(sim_t *s);
 bool sim_recover_deadlock_rollback(sim_t *s);

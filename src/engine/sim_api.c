@@ -22,6 +22,7 @@ const char *sim_strerror(int err) {
 void proc_spec_init(proc_spec_t *spec, const char *name) {
     memset(spec, 0, sizeof(*spec));
     snprintf(spec->name, sizeof(spec->name), "%s", (name && *name) ? name : "proc");
+    spec->parent = PRISM_INIT_PID;
 }
 
 int proc_spec_add_burst(proc_spec_t *spec, burst_kind_t kind, uint16_t duration) {
@@ -51,9 +52,10 @@ int proc_spec_validate(const proc_spec_t *spec, char *msg, size_t msglen) {
     if (spec->bursts[0].kind != BURST_CPU) SPEC_FAIL("first burst must be cpu");
     if (spec->period == 0 && spec->jobs > 1) SPEC_FAIL("repeating jobs need a period");
     if (spec->period == 0 && spec->deadline > 0) SPEC_FAIL("a deadline needs a period");
+    if (spec->parent < PRISM_INIT_PID || spec->parent >= PRISM_MAX_PROCESSES) SPEC_FAIL("parent %d does not exist", spec->parent);
     for (int i = 0; i < spec->num_bursts; i++) {
         const burst_t *b = &spec->bursts[i];
-        if (b->kind > BURST_SEM_SIGNAL) SPEC_FAIL("burst %d has unknown kind", i + 1);
+        if (b->kind > BURST_WAIT_CHILD) SPEC_FAIL("burst %d has unknown kind", i + 1);
         bool uses_semaphore = b->kind == BURST_SEM_WAIT || b->kind == BURST_SEM_SIGNAL;
         if (uses_semaphore && b->target_id < 0) SPEC_FAIL("burst %d names no semaphore", i + 1);
         if ((b->kind == BURST_CPU || b->kind == BURST_IO) && b->duration == 0)
@@ -91,6 +93,8 @@ static void pcb_apply_spec(pcb_t *p, const proc_spec_t *spec, tick_t arrival) {
     p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
     p->num_jobs = spec->jobs ? spec->jobs : 1;
     p->affinity_mask = spec->affinity;
+    p->parent_pid = spec->parent;
+    p->awaiting_fork = spec->parent != PRISM_INIT_PID;
 
     p->num_bursts = spec->num_bursts;
     copy_bursts_unstarted(p->bursts, spec->bursts, spec->num_bursts);
@@ -159,6 +163,7 @@ int sim_get_process_spec(const sim_t *s, sim_pid_t pid, proc_spec_t *out) {
     out->deadline = p->relative_deadline;
     out->jobs = p->num_jobs;
     out->affinity = p->affinity_mask;
+    out->parent = p->parent_pid;
     out->num_bursts = p->num_bursts;
     copy_bursts_unstarted(out->bursts, p->bursts, p->num_bursts);
     out->num_page_refs = p->num_page_refs;

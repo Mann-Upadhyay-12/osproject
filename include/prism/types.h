@@ -34,6 +34,7 @@ typedef enum {
     PROC_BLOCKED_IPC,
     PROC_BLOCKED_SEM,
     PROC_SLEEPING,
+    PROC_BLOCKED_WAIT,
     PROC_TERMINATED
 } proc_state_t;
 
@@ -46,7 +47,9 @@ typedef enum {
     BURST_IPC_RECV,
     BURST_CHECKPOINT,
     BURST_SEM_WAIT,
-    BURST_SEM_SIGNAL
+    BURST_SEM_SIGNAL,
+    BURST_FORK,
+    BURST_WAIT_CHILD
 } burst_kind_t;
 
 typedef struct {
@@ -115,7 +118,12 @@ typedef enum {
     EVENT_JOB_RELEASE,
     EVENT_JOB_COMPLETE,
     EVENT_DEADLINE_MISS,
-    EVENT_MIGRATE
+    EVENT_MIGRATE,
+    EVENT_FORK,
+    EVENT_WAIT_BLOCKED,
+    EVENT_ZOMBIE,
+    EVENT_REAP,
+    EVENT_ORPHAN
 } event_type_t;
 
 typedef struct {

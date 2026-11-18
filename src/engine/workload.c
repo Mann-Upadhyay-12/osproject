@@ -38,6 +38,8 @@ static bool parse_semaphore_burst(proc_spec_t *spec, const char *token, const si
 
 static bool parse_one_burst(proc_spec_t *spec, const char *token, const sim_t *sim) {
     if (strchr(token, ':')) return parse_semaphore_burst(spec, token, sim);
+    if (text_equals_ignore_case(token, "fork")) return spec_add_control(spec, BURST_FORK, 0, 0);
+    if (text_equals_ignore_case(token, "wait")) return spec_add_control(spec, BURST_WAIT_CHILD, 0, 0);
 
     char code = (char)toupper((unsigned char)token[0]);
     int arg = atoi(token + 1);
@@ -144,6 +146,8 @@ static sim_pid_t workload_install_spec(sim_t *sim, const proc_spec_t *spec) {
     p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
     p->num_jobs = spec->jobs ? spec->jobs : 1;
     p->affinity_mask = spec->affinity;
+    p->parent_pid = spec->parent;
+    p->awaiting_fork = spec->parent != PRISM_INIT_PID;
     p->num_bursts = spec->num_bursts;
     memcpy(p->bursts, spec->bursts, spec->num_bursts * sizeof(spec->bursts[0]));
     p->num_page_refs = spec->num_page_refs;
@@ -242,6 +246,13 @@ static void parse_seed(parse_ctx_t *ctx, const char *value) {
     if (ctx->sim) { ctx->sim->seed = seed; ctx->sim->prng_state = seed; }
 }
 
+static int16_t find_process(const sim_t *sim, const char *name) {
+    for (int i = 0; sim && i < sim->num_processes; i++) {
+        if (strcmp(sim->procs[i].name, name) == 0) return (int16_t)i;
+    }
+    return PRISM_INIT_PID;
+}
+
 static uint8_t parse_core_list(const char *list) {
     uint8_t mask = 0;
     for (const char *p = list; *p; p++) {
@@ -267,6 +278,11 @@ static void parse_proc(parse_ctx_t *ctx, char *fields) {
             spec.period = (uint16_t)atoi(token + 7);
         } else if (starts_with(token, "deadline=")) {
             spec.deadline = (uint16_t)atoi(token + 9);
+        } else if (starts_with(token, "parent=")) {
+            spec.parent = find_process(ctx->sim, token + 7);
+            if (spec.parent == PRISM_INIT_PID) {
+                fprintf(stderr, "%s:%d: parent '%s' must be declared earlier\n", ctx->path, ctx->lineno, token + 7);
+            }
         } else if (starts_with(token, "affinity=")) {
             spec.affinity = parse_core_list(token + 9);
         } else if (starts_with(token, "jobs=")) {

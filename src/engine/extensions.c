@@ -42,6 +42,7 @@ bool sim_inject_kill(sim_t *s, sim_pid_t pid) {
     sim_release_frames(s, pid);
 
     sim_log_event(s, EVENT_PROC_KILLED, pid, NO_CORE, 0, 0);
+    sim_tree_on_exit(s, p);
     return true;
 }
 

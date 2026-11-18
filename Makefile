@@ -7,7 +7,7 @@ NCURSES_LIBS = $(shell pkg-config --libs ncurses 2>/dev/null || echo "-lncurses"
 BUILD_DIR = build
 
 # Simulator core: libc + libm only, no UI dependency.
-ENGINE_SRCS = src/engine/sim.c src/engine/names.c src/engine/ready_queue.c src/engine/extensions.c src/engine/semaphore.c src/engine/workload.c src/engine/sim_api.c src/engine/scenario.c src/engine/metrics.c
+ENGINE_SRCS = src/engine/sim.c src/engine/names.c src/engine/ready_queue.c src/engine/extensions.c src/engine/semaphore.c src/engine/proctree.c src/engine/workload.c src/engine/sim_api.c src/engine/scenario.c src/engine/metrics.c
 SCHED_SRCS  = src/sched/schedulers.c src/sched/realtime.c src/sched/smp.c
 VM_SRCS     = src/vm/replacement.c
 LABS_SRCS   = src/labs/refstring.c src/labs/disk.c src/labs/contig.c src/labs/paging.c

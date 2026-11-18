@@ -36,6 +36,11 @@ const char *event_type_str(event_type_t type) {
         case EVENT_JOB_COMPLETE:        return "JOB_DONE";
         case EVENT_DEADLINE_MISS:       return "DEADLINE_MISS";
         case EVENT_MIGRATE:             return "MIGRATE";
+        case EVENT_FORK:                return "FORK";
+        case EVENT_WAIT_BLOCKED:        return "WAIT_BLOCKED";
+        case EVENT_ZOMBIE:              return "ZOMBIE";
+        case EVENT_REAP:                return "REAP";
+        case EVENT_ORPHAN:              return "ORPHAN";
         default:                        return "UNKNOWN";
     }
 }
@@ -51,6 +56,7 @@ const char *proc_state_str(proc_state_t state) {
         case PROC_BLOCKED_IPC:      return "BLOCK_IPC";
         case PROC_BLOCKED_SEM:      return "BLOCK_SEM";
         case PROC_SLEEPING:         return "SLEEP";
+        case PROC_BLOCKED_WAIT:     return "BLOCK_WAIT";
         case PROC_TERMINATED:       return "TERM";
         default:                    return "UNUSED";
     }

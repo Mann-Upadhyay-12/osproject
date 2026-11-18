@@ -141,7 +141,9 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] CPU affinity (`affinity=0,2` on a `proc` line, builder checkboxes), core-change count for every policy (metrics + Compare); preset `smp_affinity`; tests in `tests/test_smp.c`
 
 ## Milestone 20 — Process tree
-- [ ] fork / wait bursts, parent-child links, zombies and orphans (re-parented to init), tree view
+- [x] `fork` / `wait` bursts and `parent=NAME` (`src/engine/proctree.c`): a child exists only once its parent forks it; `PROC_BLOCKED_WAIT`; events FORK, WAIT_BLOCKED, ZOMBIE, REAP, ORPHAN
+- [x] Zombies until reaped, orphans adopted and reaped by init, never-forked children do not hang the run; preset `process_tree`; tests in `tests/test_tree.c`
+- [x] GUI: Tree tab (indented tree under init), narration, builder Parent field and + fork / + wait
 
 ---
 

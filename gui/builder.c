@@ -9,7 +9,7 @@
 #define BID(n) (1000 + (n))
 
 #define DIALOG_W        600
-#define DIALOG_H        700
+#define DIALOG_H        740
 #define VISIBLE_BURSTS  7
 #define BURST_ROW_H     32.0f
 #define IPC_SEND_DATA   100
@@ -100,6 +100,7 @@ static void reset_builder(builder_t *b, uint64_t rng) {
     b->rng = rng;
     b->open = true;
     b->edit_pid = -1;
+    b->parent = PRISM_INIT_PID;
 }
 
 void builder_open_new(gui_t *g, bool inject) {
@@ -132,6 +133,7 @@ void builder_open_edit(gui_t *g, int pid) {
     b->deadline = spec.deadline != spec.period ? spec.deadline : 0;
     b->jobs = spec.period ? spec.jobs : 1;
     for (int c = 0; c < PRISM_MAX_CORES; c++) b->affinity[c] = (spec.affinity >> c) & 1u;
+    b->parent = spec.parent;
 
     b->num_bursts = spec.num_bursts;
     for (int i = 0; i < spec.num_bursts; i++) {
@@ -180,6 +182,7 @@ static bool builder_to_spec(gui_t *g, proc_spec_t *spec) {
     for (int c = 0; c < PRISM_MAX_CORES; c++) {
         if (b->affinity[c]) spec->affinity |= (uint8_t)(1u << c);
     }
+    spec->parent = (int16_t)b->parent;
     if (b->period > 0) {
         spec->period = (uint16_t)b->period;
         spec->deadline = (uint16_t)b->deadline;
@@ -257,6 +260,8 @@ static const char *control_burst_label(const sim_t *s, const builder_burst_t *bu
         case BURST_CHECKPOINT: snprintf(label, sizeof(label), "checkpoint"); break;
         case BURST_SEM_WAIT:   snprintf(label, sizeof(label), "wait(%s)", sem); break;
         case BURST_SEM_SIGNAL: snprintf(label, sizeof(label), "signal(%s)", sem); break;
+        case BURST_FORK:       snprintf(label, sizeof(label), "fork()"); break;
+        case BURST_WAIT_CHILD: snprintf(label, sizeof(label), "wait() for a child"); break;
         default:               snprintf(label, sizeof(label), "?"); break;
     }
     return label;
@@ -312,6 +317,37 @@ static float draw_affinity_fields(gui_t *g, float x, float y) {
     }
     ui_text(x + 440, y + 3, 12, UI_TEXT_DIM, "none ticked = any core");
     return y + 34;
+}
+
+static int parent_choices(const gui_t *g, const char **items, int *pids) {
+    int own_pid = g->builder.edit_pid >= 0 ? g->builder.edit_pid : g->sim->num_processes;
+    int count = 0;
+    items[count] = "none (arrives on its own)";
+    pids[count++] = PRISM_INIT_PID;
+    for (int pid = 0; pid < own_pid && pid < g->sim->num_processes; pid++) {
+        if (g->sim->procs[pid].state == PROC_UNUSED) continue;
+        items[count] = g->sim->procs[pid].name;
+        pids[count++] = pid;
+    }
+    return count;
+}
+
+static float draw_parent_field(gui_t *g, float x, float y) {
+    static const char *items[PRISM_MAX_PROCESSES + 1];
+    static int pids[PRISM_MAX_PROCESSES + 1];
+    builder_t *b = &g->builder;
+    int count = parent_choices(g, items, pids);
+
+    int chosen = 0;
+    for (int i = 0; i < count; i++) {
+        if (pids[i] == b->parent) chosen = i;
+    }
+    ui_text(x, y + 6, 14, UI_TEXT_DIM, "Parent");
+    if (ui_dropdown(BID(40), (Rectangle){x + 120, y, 240, 28}, items, count, &chosen)) b->parent = pids[chosen];
+    b->parent = pids[chosen];
+    const char *hint = b->parent >= 0 ? "born at the parent's fork()" : "parents use fork / wait";
+    ui_text(x + 372, y + 7, 12, UI_TEXT_DIM, "%s", hint);
+    return y + 38;
 }
 
 static float draw_pages_field(builder_t *b, float x, float y, float width) {
@@ -402,6 +438,14 @@ static float draw_burst_list(const sim_t *sim, builder_t *b, float x, float y, f
         append_burst(b, BURST_IO, 4);
         scroll_to_last_burst(b);
     }
+    if (ui_button_ex(BID(12), (Rectangle){x + 246, y, 80, 28}, "+ fork", has_room, false)) {
+        append_burst(b, BURST_FORK, 1);
+        scroll_to_last_burst(b);
+    }
+    if (ui_button_ex(BID(13), (Rectangle){x + 334, y, 80, 28}, "+ wait", has_room, false)) {
+        append_burst(b, BURST_WAIT_CHILD, 1);
+        scroll_to_last_burst(b);
+    }
     return y + 40;
 }
 
@@ -468,6 +512,7 @@ void builder_draw(gui_t *g) {
     y = draw_identity_fields(g, x, y);
     y = draw_periodic_fields(b, x, y);
     y = draw_affinity_fields(g, x, y);
+    y = draw_parent_field(g, x, y);
     y = draw_pages_field(b, x, y, width);
     y = draw_burst_list(g->sim, b, x, y, width);
     y = draw_template_buttons(g, x, y);

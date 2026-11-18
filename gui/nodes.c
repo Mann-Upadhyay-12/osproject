@@ -29,9 +29,16 @@ Color state_color(proc_state_t state) {
         case PROC_BLOCKED_IPC:      return (Color){190, 110, 230, 255};
         case PROC_BLOCKED_SEM:      return (Color){230,  95, 170, 255};
         case PROC_SLEEPING:         return (Color){ 70, 120, 140, 255};
+        case PROC_BLOCKED_WAIT:     return (Color){120, 200, 200, 255};
         case PROC_TERMINATED:       return (Color){ 75,  80,  90, 255};
         default:                    return (Color){ 50,  50,  50, 255};
     }
+}
+
+const char *gui_proc_state_label(const pcb_t *p) {
+    if (p->zombie) return "ZOMBIE";
+    if (p->awaiting_fork) return "not forked";
+    return proc_state_str(p->state);
 }
 
 static bool same_node(node_ref_t a, node_ref_t b) {
@@ -244,7 +251,7 @@ static void draw_proc_body(const gui_t *g, int pid, Rectangle r) {
 
     DrawRectangleRounded((Rectangle){r.x, r.y, 7, r.height}, 0.5f, 4, proc_color(pid));
     ui_text(r.x + 14, r.y + 6, 16, p->state == PROC_TERMINATED ? UI_TEXT_DIM : UI_TEXT, "%s", p->name);
-    ui_text(r.x + 14, r.y + 25, 13, color, "pid %d  %s", pid, proc_state_str(p->state));
+    ui_text(r.x + 14, r.y + 25, 13, color, "pid %d  %s", pid, gui_proc_state_label(p));
 
     uint32_t done, total;
     cpu_progress(p, &done, &total);
@@ -252,7 +259,7 @@ static void draw_proc_body(const gui_t *g, int pid, Rectangle r) {
     DrawRectangleRec(bar, DARK_FILL);
     if (total) DrawRectangle((int)bar.x, (int)bar.y, (int)(bar.width * done / total), (int)bar.height, color);
 
-    if (p->state == PROC_NEW) {
+    if (p->state == PROC_NEW && !p->awaiting_fork) {
         ui_text(r.x + r.width - 52, r.y + 7, 12, UI_TEXT_DIM, "t=%" PRIu64, (uint64_t)p->arrival_tick);
     }
 }

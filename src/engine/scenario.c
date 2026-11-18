@@ -64,6 +64,8 @@ static void write_bursts(FILE *fp, const sim_t *s, const pcb_t *p) {
             case BURST_CHECKPOINT: fputc('K', fp); break;
             case BURST_SEM_WAIT:   fprintf(fp, "wait:%s", s->semaphores[b->target_id].name); break;
             case BURST_SEM_SIGNAL: fprintf(fp, "signal:%s", s->semaphores[b->target_id].name); break;
+            case BURST_FORK:       fputs("fork", fp); break;
+            case BURST_WAIT_CHILD: fputs("wait", fp); break;
         }
     }
 }
@@ -109,6 +111,7 @@ static void write_process(FILE *fp, const sim_t *s, const pcb_t *p) {
     if (p->period) fprintf(fp, " period=%u jobs=%u", p->period, p->num_jobs);
     if (p->period && p->relative_deadline != p->period) fprintf(fp, " deadline=%u", p->relative_deadline);
     if (p->affinity_mask) write_affinity(fp, p->affinity_mask);
+    if (p->parent_pid >= 0 && s->procs[p->parent_pid].state != PROC_UNUSED) fprintf(fp, " parent=%s", s->procs[p->parent_pid].name);
 
     fputs(" bursts=", fp);
     write_bursts(fp, s, p);

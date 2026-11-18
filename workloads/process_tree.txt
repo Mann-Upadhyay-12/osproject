@@ -1,0 +1,17 @@
+# Process tree: Shell forks three children (fork), then waits for two of them (wait) and exits.
+#   Compile finishes before Shell calls wait, so it sits as a ZOMBIE until Shell reaps it.
+#   Test is still running when Shell waits, so Shell blocks until Test exits (no zombie).
+#   Server is never waited for: when Shell exits it becomes an ORPHAN, adopted and later reaped by init.
+#   Logger is declared but Shell exits before forking it a fourth time, so it is never created.
+# Server forks its own child (Worker) and waits for it, giving a three-level tree.
+cores 1
+frames 16
+sched rr
+quantum 2
+
+proc Shell arrival=0 bursts=C2,fork,C1,fork,C1,fork,C3,wait,wait,C1
+proc Compile parent=Shell bursts=C2
+proc Test parent=Shell bursts=C3,I8,C4
+proc Server parent=Shell bursts=C2,fork,C2,wait,C10
+proc Logger parent=Shell bursts=C2
+proc Worker parent=Server bursts=C4

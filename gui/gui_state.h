@@ -58,6 +58,7 @@ typedef struct {
     int             deadline;
     int             jobs;
     bool            affinity[PRISM_MAX_CORES];
+    int             parent;
     char            pages[1200];
     int             num_bursts;
     builder_burst_t bursts[PRISM_MAX_BURSTS];
@@ -69,7 +70,7 @@ typedef struct {
 typedef enum { MODE_EDIT = 0, MODE_RUN } gui_mode_t;
 typedef enum { VIEW_SIM = 0, VIEW_COMPARE, VIEW_LABS, VIEW_COUNT } gui_view_t;
 
-typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_SYNC, LTAB_REALTIME, LTAB_COUNT } left_tab_t;
+typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_SYNC, LTAB_REALTIME, LTAB_TREE, LTAB_COUNT } left_tab_t;
 typedef enum { MTAB_GANTT = 0, MTAB_STATES, MTAB_TABLE, MTAB_COUNT } mid_tab_t;
 
 typedef struct {
@@ -210,7 +211,10 @@ void  explain_sync_event(gui_t *g, const sim_event_t *ev);
 void  sync_describe_stall(const sim_t *s, char *out, size_t size);
 void  panel_sync(gui_t *g, Rectangle body);
 void  panel_realtime(gui_t *g, Rectangle body);
+void  panel_tree(gui_t *g, Rectangle body);
+void  explain_tree_event(gui_t *g, const sim_event_t *ev);
 int   gui_ready_queue_rows(const sim_t *s);
+const char *gui_proc_state_label(const pcb_t *p);
 const char *gui_ready_queue_label(const sim_t *s, int row);
 void  explain_realtime_event(gui_t *g, const sim_event_t *ev);
 bool  explain_realtime_preempt(gui_t *g, const sim_event_t *ev);

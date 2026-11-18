@@ -68,6 +68,11 @@ typedef struct {
     int8_t             last_core;
     uint16_t           migrations;
 
+    int16_t            parent_pid;
+    bool               awaiting_fork;
+    bool               zombie;
+    bool               orphaned;
+
     int16_t            next_proc;
 } pcb_t;
 
