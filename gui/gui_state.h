@@ -1,21 +1,6 @@
 #ifndef PRISM_GUI_STATE_H
 #define PRISM_GUI_STATE_H
 
-/*
- * prism-gui: "Packet Tracer for processes".
- *
- * The GUI owns one sim_t and edits it only through sim_api.h / scenario.h.
- * The canvas shows system nodes (Ready Queue, Scheduler, CPU, Memory,
- * Disk/I-O) and one node per process; layout positions live in a layout_t so
- * they save with the scenario. Trace events reach the GUI through the sim
- * observer and feed the event list, the narration ("Explain") and the token
- * animations; all of it is a pure view and never feeds back.
- *
- * Two views share the window: Simulate (the canvas) and Compare (runs the
- * same test cases under several algorithms on private sim_t copies, see
- * compare.c). Neither view touches the other's simulation.
- */
-
 #include "raylib.h"
 #include "prism/sim_api.h"
 #include "prism/scenario.h"
@@ -33,11 +18,11 @@ typedef enum {
 } node_kind_t;
 
 typedef struct {
-    int kind;   /* node_kind_t */
-    int pid;    /* NODE_PROC only */
+    int kind;
+    int pid;
 } node_ref_t;
 
-extern const char *const g_sys_keys[NODE_SYS_COUNT];   /* layout keys */
+extern const char *const g_sys_keys[NODE_SYS_COUNT];
 extern const char *const g_sys_titles[NODE_SYS_COUNT];
 
 #define GUI_EV_CAP      16384
@@ -48,119 +33,116 @@ extern const char *const g_sys_titles[NODE_SYS_COUNT];
 
 typedef struct {
     int     pid;
-    Vector2 pts[GUI_MAX_PATH];
-    int     npts;
-    double  t0, dur;
+    Vector2 points[GUI_MAX_PATH];
+    int     num_points;
+    double  start_time;
+    double  duration;
     Color   color;
-    bool    fault;     /* draw as a page-fault token */
+    bool    fault;
 } token_t;
 
 typedef struct {
-    bool        open;
-    bool        inject;         /* run mode: spawn now instead of editing */
-    int         edit_pid;       /* -1 = new process */
-    char        name[PRISM_MAX_NAME_LEN];
-    int         arrival, priority;
-    char        pages[1200];
-    int         nb;
-    int         kind[PRISM_MAX_BURSTS];      /* burst_kind_t; only CPU/IO are editable */
-    int         dur[PRISM_MAX_BURSTS];
-    int         target[PRISM_MAX_BURSTS];    /* kept for resource/IPC bursts */
-    int         scroll;
-    char        error[160];
-    uint64_t    rng;
+    int kind;
+    int duration;
+    int target;
+} builder_burst_t;
+
+typedef struct {
+    bool            open;
+    bool            inject;
+    int             edit_pid;
+    char            name[PRISM_MAX_NAME_LEN];
+    int             arrival;
+    int             priority;
+    char            pages[1200];
+    int             num_bursts;
+    builder_burst_t bursts[PRISM_MAX_BURSTS];
+    int             scroll;
+    char            error[160];
+    uint64_t        rng;
 } builder_t;
 
 typedef enum { MODE_EDIT = 0, MODE_RUN } gui_mode_t;
 typedef enum { VIEW_SIM = 0, VIEW_COMPARE } gui_view_t;
 
-/* Bottom panes: left (narration / raw events) and middle (charts / table). */
 typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_COUNT } left_tab_t;
 typedef enum { MTAB_GANTT = 0, MTAB_STATES, MTAB_TABLE, MTAB_COUNT } mid_tab_t;
 
-/* One plain-language sentence about a trace event, written when it happens
- * (the observer sees the state at that moment, e.g. who else was waiting). */
 typedef struct {
     tick_t tick;
     int    pid;
-    int    type;        /* event_type_t */
+    int    type;
     char   text[220];
-} narr_t;
+} narration_t;
 
-struct compare;   /* compare.c */
+struct compare;
 
 typedef struct gui {
     sim_t      *sim;
     layout_t    layout;
     gui_mode_t  mode;
     bool        playing;
-    float       speed;          /* ticks per second */
-    double      tick_acc;
+    float       speed;
+    double      tick_accumulator;
 
-    /* canvas */
-    Camera2D    cam;
-    Rectangle   canvas;         /* screen rect */
-    node_ref_t  sel, hover, drag;
-    Vector2     drag_off;
+    Camera2D    camera;
+    Rectangle   canvas;
+    node_ref_t  selected, hovered, dragged;
+    Vector2     drag_offset;
     bool        snap;
     bool        panning;
-    node_ref_t  ctx_node;       /* right-click menu target */
-    Vector2     ctx_pos;
-    bool        ctx_open;
-    int         palette_drag;   /* node kind being dragged from palette, -1 none */
+    node_ref_t  menu_node;
+    Vector2     menu_pos;
+    bool        menu_open;
+    int         palette_drag;
 
-    /* trace view (filled by the observer) */
-    sim_event_t ev[GUI_EV_CAP];
-    uint32_t    ev_start, ev_len;
-    float       ev_scroll;      /* rows from the bottom */
-    bool        hide_hits;
-    int         ev_filter_pid;  /* -1 = all */
+    sim_event_t events[GUI_EV_CAP];
+    uint32_t    events_start, events_len;
+    float       events_scroll;
+    bool        hide_page_hits;
+    int         events_filter_pid;
 
-    /* per-tick history for the timelines: process states and who ran on each core */
-    uint8_t     hist[GUI_HIST_TICKS][PRISM_MAX_PROCESSES];
-    int8_t      hist_core[GUI_HIST_TICKS][PRISM_MAX_CORES];
-    uint32_t    hist_len;
+    uint8_t     state_history[GUI_HIST_TICKS][PRISM_MAX_PROCESSES];
+    int8_t      core_history[GUI_HIST_TICKS][PRISM_MAX_CORES];
+    uint32_t    history_len;
 
-    /* narration ring (Explain tab) */
-    narr_t      narr[GUI_NARR_CAP];
-    uint32_t    narr_start, narr_len;
-    float       narr_scroll;
-    bool        replaying;      /* gui_seek is re-running: no animation */
+    narration_t narration[GUI_NARR_CAP];
+    uint32_t    narration_start, narration_len;
+    float       narration_scroll;
+    bool        replaying;
 
     gui_view_t  view;
-    int         ltab, mtab;
-    struct compare *cmp;
+    int         left_tab, mid_tab;
+    struct compare *compare;
 
-    /* animation */
-    token_t     tok[GUI_MAX_TOKENS];
-    int         ntok;
+    token_t     tokens[GUI_MAX_TOKENS];
+    int         num_tokens;
     double      frame_flash[PRISM_MAX_FRAMES];
     double      frame_load[PRISM_MAX_FRAMES];
     double      node_flash[NODE_SYS_COUNT];
     double      anim_now;
-    float       anim_dur;
+    float       anim_duration;
 
-    builder_t   b;
+    builder_t   builder;
 
     char        path[256];
     char        status[200];
-    double      status_t;
+    double      status_time;
     bool        status_bad;
-    int         preset_sel;
+    int         preset_selected;
     char        presets[16][128];
     const char *preset_items[17];
-    int         npresets;
+    int         num_presets;
 } gui_t;
 
-/* main_gui.c */
 void gui_status(gui_t *g, bool bad, const char *fmt, ...);
 void gui_reset_view_state(gui_t *g);
 void gui_enter_edit(gui_t *g);
 void gui_step_tick(gui_t *g);
 void gui_step_event(gui_t *g);
-void gui_seek(gui_t *g, tick_t target);   /* replay from 0 (or step forward) to target */
+void gui_seek(gui_t *g, tick_t target);
 void gui_step_back(gui_t *g);
-bool gui_start_running(gui_t *g);          /* validate and enter run mode */
+bool gui_start_running(gui_t *g);
 bool gui_validate(const gui_t *g, char *msg, size_t n);
 void gui_load(gui_t *g, const char *path);
 void gui_save(gui_t *g, const char *path);
@@ -172,9 +154,10 @@ void gui_duplicate_process(gui_t *g, int pid);
 void gui_random_processes(gui_t *g, int n);
 void gui_fit_view(gui_t *g);
 
-/* canvas.c */
 Rectangle canvas_node_rect(const gui_t *g, node_ref_t n);
 Vector2   canvas_node_center(const gui_t *g, node_ref_t n);
+const char *canvas_node_key(const gui_t *g, node_ref_t n);
+void      canvas_draw_node(const gui_t *g, node_ref_t n);
 void      canvas_place_process(gui_t *g, int pid);
 void      canvas_default_layout(gui_t *g);
 void      canvas_update(gui_t *g);
@@ -182,14 +165,12 @@ void      canvas_draw(gui_t *g);
 Color     proc_color(int pid);
 Color     state_color(proc_state_t st);
 
-/* anim.c */
 void anim_observer(const sim_event_t *ev, void *user);
 void anim_update(gui_t *g);
 void anim_draw(const gui_t *g);
 void anim_clear(gui_t *g);
 
-/* panels.c */
-void panels_init(void);   /* call once at startup */
+void panels_init(void);
 void panel_toolbar(gui_t *g, Rectangle r);
 void panel_palette(gui_t *g, Rectangle r);
 void panel_inspector(gui_t *g, Rectangle r);
@@ -199,54 +180,48 @@ void panel_bottom_mid(gui_t *g, Rectangle r);
 void panel_metrics(gui_t *g, Rectangle r);
 Color event_color(event_type_t t);
 void panel_context_menu(gui_t *g);
-typedef struct { float x, y, w; } cursor_t;          /* simple vertical layout */
+typedef struct { float x, y, w; } cursor_t;
 void panel_kv(cursor_t *c, const char *key, const char *fmt, ...);
 void panel_heading(cursor_t *c, const char *title);
-extern const char *g_sched_items[SCHED_COUNT];      /* filled by panels_init */
+extern const char *g_sched_items[SCHED_COUNT];
 extern const char *g_repl_items[REPL_COUNT];
 
-/* explain.c: narration and algorithm "cards" */
 typedef struct {
     const char *name;
-    const char *summary;      /* one line */
-    const char *how;          /* the rule, in a few sentences */
+    const char *summary;
+    const char *how;
     const char *good;
     const char *bad;
-    const char *preemptive;   /* "yes" / "no" / detail */
+    const char *preemptive;
 } algo_info_t;
 const algo_info_t *explain_sched_info(sched_policy_t p);
 const algo_info_t *explain_repl_info(repl_policy_t p);
-float explain_draw_card(const algo_info_t *a, float x, float y, float w);   /* returns height */
-void  explain_event(gui_t *g, const sim_event_t *ev);    /* observer hook */
+float explain_draw_card(const algo_info_t *a, float x, float y, float w);
+void  explain_event(gui_t *g, const sim_event_t *ev);
 void  explain_clear(gui_t *g);
 void  panel_explain(gui_t *g, Rectangle body);
-void  explain_draw_latest(gui_t *g, Rectangle canvas);   /* caption over the canvas */
+void  explain_draw_latest(gui_t *g, Rectangle canvas);
 
-/* gantt.c: timelines and the per-process results table */
 typedef struct {
-    const int8_t *cells;   /* cells[(t % ring) * stride + core] = pid or -1 */
-    uint32_t      ring;    /* ring capacity in ticks (or the length, if not a ring) */
+    const int8_t *cells;
+    uint32_t      ring;
     int           stride;
     int           ncores;
-    uint32_t      len;     /* ticks recorded */
+    uint32_t      len;
 } lanes_t;
 typedef const char *(*pid_name_fn)(int pid, void *user);
-/* Textbook Gantt chart: one lane per core, merged blocks with process names,
- * a tick axis. Shows ticks [first, first+span). Returns the hovered tick or -1. */
 int  gantt_draw(Rectangle r, const lanes_t *L, uint32_t first, uint32_t span, pid_name_fn name, void *user,
                 bool axis, int64_t cursor);
 void panel_cpu_gantt(gui_t *g, Rectangle body);
 void panel_states(gui_t *g, Rectangle body);
 void panel_proc_table(gui_t *g, Rectangle body);
 
-/* compare.c / compare_view.c */
 void compare_init(gui_t *g);
 void compare_free(gui_t *g);
 void compare_mark_dirty(gui_t *g);
 void compare_view(gui_t *g, Rectangle r);
-void compare_setup_args(gui_t *g, const char *mode);   /* --compare sched|vm */
+void compare_setup_args(gui_t *g, const char *mode);
 
-/* builder.c */
 void builder_open_new(gui_t *g, bool inject);
 void builder_open_edit(gui_t *g, int pid);
 void builder_template(gui_t *g, int which);

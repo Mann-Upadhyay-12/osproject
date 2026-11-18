@@ -7,13 +7,13 @@ NCURSES_LIBS = $(shell pkg-config --libs ncurses 2>/dev/null || echo "-lncurses"
 BUILD_DIR = build
 
 # Simulator core: libc + libm only, no UI dependency.
-ENGINE_SRCS = src/engine/sim.c src/engine/workload.c src/engine/sim_api.c src/engine/scenario.c src/engine/metrics.c
+ENGINE_SRCS = src/engine/sim.c src/engine/ready_queue.c src/engine/extensions.c src/engine/workload.c src/engine/sim_api.c src/engine/scenario.c src/engine/metrics.c
 SCHED_SRCS  = src/sched/schedulers.c
 VM_SRCS     = src/vm/replacement.c
 LIB_SRCS    = $(ENGINE_SRCS) $(SCHED_SRCS) $(VM_SRCS)
 LIB_OBJS    = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(LIB_SRCS))
 
-CLI_SRCS = src/cli/main.c
+CLI_SRCS = src/cli/main.c src/cli/report.c src/cli/experiments.c
 TUI_SRCS = src/ui/tui.c
 
 STATIC_LIB = $(BUILD_DIR)/libprism.a
@@ -73,8 +73,8 @@ $(BUILD_DIR)/%.o: src/%.c | $(BUILD_DIR)
 $(STATIC_LIB): $(LIB_OBJS)
 	ar rcs $@ $(LIB_OBJS)
 
-$(CLI_BIN): $(CLI_SRCS) $(STATIC_LIB)
-	$(CC) $(CFLAGS) $< $(STATIC_LIB) $(LDFLAGS) -lm -o $@
+$(CLI_BIN): $(CLI_SRCS) src/cli/cli.h $(STATIC_LIB)
+	$(CC) $(CFLAGS) $(CLI_SRCS) $(STATIC_LIB) $(LDFLAGS) -lm -o $@
 
 $(TUI_BIN): $(TUI_SRCS) $(STATIC_LIB)
 	$(CC) $(CFLAGS) $< $(STATIC_LIB) $(LDFLAGS) $(NCURSES_LIBS) -lm -o $@
@@ -91,6 +91,9 @@ debug sanitize: clean
 	@$(MAKE) CFLAGS="$(DEBUG_CFLAGS)" LDFLAGS="-fsanitize=address,undefined" all $(TEST_BINS)
 	@echo "Running tests under sanitizers..."
 	@set -e; for t in $(TEST_BINS); do ASAN_OPTIONS=detect_leaks=1 ./$$t; done
+	@# Leave no instrumented objects behind: a later plain `make` would see them
+	@# as up to date and ship sanitizer builds of the binaries.
+	@$(MAKE) --no-print-directory clean
 
 valgrind: $(TEST_BINS)
 	@echo "Running Valgrind Memory Leak and Cleanliness Check..."

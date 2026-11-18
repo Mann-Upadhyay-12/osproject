@@ -33,16 +33,20 @@ make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checko
 | Path | Responsibility |
 |---|---|
 | `include/prism/types.h`, `pcb.h`, `sim.h` | Flat, pointer-free `sim_t` (≈0.5 MB: keep instances off the stack in new code), `pcb_t`, events |
-| `src/engine/sim.c` | Tick-driven main loop `sim_step()` (6 phases: arrivals, I/O, fault service, dispatch, wait accounting, execution), extensions |
+| `src/engine/sim.c` | Tick-driven main loop `sim_step()`: one named function per phase (`admit_arrivals`, `advance_io`, `advance_fault_service`, `dispatch_idle_cores`, `account_waiting`, `execute_core`), frame helpers, logging |
+| `src/engine/ready_queue.c` | Intrusive ready-queue push/pop/remove |
+| `src/engine/extensions.c` | Fault injection, resources + deadlock detection/recovery, IPC, checkpoints |
 | `src/engine/sim_api.c` / `sim_api.h` | Interactive API: `proc_spec_t`, spawn/remove/update, reset, live policy switch, `sim_set_frames`, `sim_run_until`, `sim_step_event`, observer |
 | `src/engine/scenario.c` / `scenario.h` | Scenario save/load = workload format + `layout node=K x= y=` lines; `layout_t` |
 | `src/engine/metrics.c` / `metrics.h` | `sim_metrics_compute` (avg wait/turnaround/response, max wait, util, throughput, faults), `sim_prepare_variant` (rewound copy with other policies), `sim_run_bounded` |
 | `src/engine/workload.c` / `workload.h` | Workload parser (`proc NAME arrival= priority= bursts=C5,I3 pages=...`), generators |
 | `src/sched/schedulers.c` | 8 schedulers behind `sched_ops_t` (registry + `sched_lookup`) |
 | `src/vm/replacement.c` | FIFO/LRU/Clock/OPT behind `repl_ops_t` (registry + `repl_lookup`) |
-| `src/cli/main.c`, `src/ui/tui.c` | Frontends |
+| `src/cli/main.c`, `cli.h`, `report.c`, `experiments.c` | CLI: option parsing + shell / snapshot printing / experiments and demos |
+| `src/ui/tui.c` | ncurses dashboard (`tui_t` state, one `draw_*` per panel) |
+| `include/prism/text.h` | `text_equals_ignore_case` (shared by policy lookups and parsers) |
 | `tests/test_prism.c`, `tests/test_api.c`, `tests/test_metrics.c` | Core suite, interactive API suite, metrics/comparison suite (textbook answers) |
-| `gui/` | raylib GUI: `main_gui.c` (loop, views, keys, seek/rewind, file I/O), `canvas.c` (nodes, links, pan/zoom, hit-test), `anim.c` (observer → tokens), `explain.c` (narration + algorithm cards), `gantt.c` (Gantt chart, state timeline, results table), `panels.c` (toolbar, palette, tabbed bottom panes, metrics, context menu), `inspector.c`, `builder.c` (process builder), `compare.c` / `compare_view.c` / `compare.h` (Compare view: runner, charts, frame table), `widgets.c` (own immediate-mode widgets) |
+| `gui/` | raylib GUI: `main_gui.c` (window, frame layout, keys, startup flags), `actions.c` (run control, seek/rewind, load/save, node and process edits), `canvas.c` (layout, links, pan/zoom, hit-test), `nodes.c` (node geometry and drawing, colours), `anim.c` (observer → tokens), `explain.c` (narration + algorithm cards), `gantt.c` (Gantt chart, state timeline, results table), `panels.c` (toolbar, palette, tabbed bottom panes, metrics, context menu), `inspector.c`, `builder.c` (process builder), `compare.c` / `compare_view.c` / `compare_details.c` / `compare.h` (Compare view: runner; setup panel, bar chart, results table; Gantt stack, fault sweep, frame table), `widgets.c` (own immediate-mode widgets) |
 
 ### Where the code differs from architecture.md (it is the original design; the code wins)
 - Engine is **tick-stepped** (`sim_step` = one tick), not a min-heap of events; there is no `EV_ARRIVAL` — arrivals are admitted in phase 1 when `arrival_tick <= tick`.
@@ -57,7 +61,7 @@ make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checko
 - Check every `malloc`/`fopen`. Out of memory: print to stderr and exit non-zero. Recoverable API errors return `SIM_ERR_*` (`sim_strerror`).
 - Free everything; `make debug` must be leak-clean.
 - Keep files focused (~400–500 lines).
-- Comments explain *why*, not *what*.
+- No comments in source files: intent comes from names, named constants and small functions. Rationale (the *why*) goes in the decision log below.
 
 ## How to work
 1. One milestone at a time, in the order in `plan.md`.
@@ -90,3 +94,8 @@ make gui        # prism-gui (raylib via pkg-config, or RAYLIB_DIR=<raylib checko
 - **Rewind (Back / click a timeline) = reset + replay to the target tick**, not snapshots (a `sim_t` is 0.5 MB). Exact because the engine is deterministic and injected processes keep their arrival tick; live policy switches made during the run are not recorded, so the replay uses the current policies (the status line says so).
 - **Narration is generated inside the observer**, because only then is the state that justified a decision still visible (other ready processes and their SJF/SRTF/CFS/BFS keys; the victim frame's load/last-use tick before it is overwritten). It reads `sim_t` and never changes it.
 - **Bundled presets are read-only from the GUI:** loading one points Save at `my_<name>.txt` (they are reference inputs for Compare and for `tests/`).
+- **CFS `min_vruntime` is the minimum over runnable tasks (monotonic)**, not the largest vruntime seen. The old code placed every waking task level with the most-run task, so sleepers went to the back. Wakers (tasks that have run before) also keep one slice of credit, as Linux's fair sleepers do; new arrivals do not.
+- **`prism-tui` switches policies through `sim_set_sched` / `sim_set_repl`.** `sim_set_policy` is for tick 0 only: it does not migrate ready queues, and using it mid-run stranded processes in MLFQ levels 1–2. The TUI's rewind history is a 500-entry ring, and its Compare panel uses `sim_prepare_variant` like the GUI.
+- **`prism-cli` flags override the workload file** (applied through `sim_api` after loading); unknown options and policy names are errors.
+- `make sanitize` ends with `make clean` so instrumented objects are never mistaken for an up-to-date release build.
+- **Readability refactor (2026-11-18):** source comments removed at the owner's request; long functions split into named steps (`sim_step` phases, per-keyword workload parsers, per-panel TUI/GUI draw functions). `sim.c` was split into `ready_queue.c` + `extensions.c`, the CLI into `report.c` + `experiments.c`, and the GUI gained `actions.c`, `nodes.c` and `compare_details.c`. Behaviour unchanged: identical CLI output and trace hashes.

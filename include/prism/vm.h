@@ -5,12 +5,12 @@
 
 typedef struct {
     bool       occupied;
-    bool       ref_bit;             /* For Clock algorithm */
+    bool       ref_bit;
     bool       dirty_bit;
-    sim_pid_t  owner_pid;           /* -1 if empty */
+    sim_pid_t  owner_pid;
     uint16_t   vpage;
-    tick_t     load_tick;           /* For FIFO */
-    tick_t     last_access_tick;    /* For LRU */
+    tick_t     load_tick;
+    tick_t     last_access_tick;
 } frame_entry_t;
 
 struct sim;
@@ -18,7 +18,7 @@ struct sim;
 typedef struct repl_ops {
     repl_policy_t policy;
     const char   *name;
-    const char   *key;      /* short CLI/file name, e.g. "lru" */
+    const char   *key;
     void (*init)(struct sim *s);
     void (*on_load)(struct sim *s, sim_pid_t pid, uint16_t vpage, int frame_idx);
     void (*on_access)(struct sim *s, sim_pid_t pid, uint16_t vpage, int frame_idx);
@@ -27,7 +27,6 @@ typedef struct repl_ops {
 
 const repl_ops_t *repl_get_ops(repl_policy_t policy);
 
-/* Resolve a replacement policy by key or display name (case-insensitive). */
 bool repl_lookup(const char *name, repl_policy_t *out);
 
-#endif /* PRISM_VM_H */
+#endif

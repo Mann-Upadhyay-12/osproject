@@ -1,6 +1,14 @@
 # PRISM: Process, Resource & Interprocess Simulation Model
 
-A deterministic, high-fidelity Operating Systems simulation engine written in pure C11. PRISM models the critical interaction between **CPU scheduling** and **virtual memory page replacement** inside a single deterministic machine.
+A deterministic operating-system simulator in pure C11: 8 CPU schedulers, 4 page-replacement policies, an ncurses dashboard and a raylib GUI. PRISM models the interaction between **CPU scheduling** and **virtual memory**: a page fault blocks a process, which changes what the scheduler does next.
+
+![prism-tui: FCFS switched live to CFS](docs/prism-tui-demo.gif)
+
+*`prism-tui` on `workloads/interactive_mix.txt`: the run starts under FCFS (one long block in the Gantt strip), then the scheduler is switched live to CFS and the processes start interleaving.*
+
+![prism-gui running a scenario](docs/prism-gui-demo.gif)
+
+*`prism-gui`: processes travel between the ready queue, CPU and disk while every scheduling decision is explained.*
 
 ---
 
@@ -9,7 +17,7 @@ A deterministic, high-fidelity Operating Systems simulation engine written in pu
 1. **Flat, Pointer-Free State (`sim_t`)**:
    - The entire simulation machine state lives in a single, contiguous struct with fixed-capacity arrays.
    - Ready queues and page tables use 16-bit indices instead of pointers.
-   - **Zero-cost Snapshot & Rewind**: Taking a snapshot of the entire machine is a single `memcpy` (`sim_snapshot`), enabling interactive rewind and replay during demos.
+   - **Snapshot & Rewind**: Taking a snapshot of the entire machine is a single `memcpy` (`sim_snapshot`), enabling interactive rewind and replay during demos.
 
 2. **Guaranteed Determinism**:
    - Uses an internal 64-bit `xorshift64*` PRNG rather than `rand()` from host libc.
@@ -24,8 +32,9 @@ A deterministic, high-fidelity Operating Systems simulation engine written in pu
      - `Round Robin`: Quantum-based timeslicing.
      - `MLFQ`: 3-level Multi-Level Feedback Queue with priority boosting.
      - `Adaptive`: Starvation aging + page-fault thrashing awareness.
-     - `CFS`: Completely Fair Scheduler with virtual runtime (`vruntime`) tracking, latency granularity, and nice weighting.
-     - `BFS`: Brainfuck Scheduler with single-runqueue earliest effective virtual deadline (`virtual_deadline`).
+     - `CFS`: a simplified Completely Fair Scheduler: per-process virtual runtime (`vruntime`) weighted by priority, 2-tick slices, and waking processes placed at `min_vruntime` with one slice of credit.
+     - `BFS`: a simplified Brainfuck Scheduler: single run queue, earliest virtual deadline first (`virtual_deadline`), deadline pushed out by priority.
+   - CFS and BFS model the selection rule of their Linux namesakes, not the kernel implementations (no red-black tree, no per-CPU queues). With equal priorities BFS behaves like Round Robin with a 2-tick quantum.
    - **Page Replacement (`repl_ops_t`)**: FIFO, LRU, Clock (second chance), and Optimal (Belady's OPT). Switchable at runtime.
 
 4. **The Integration Loop**:
@@ -34,7 +43,8 @@ A deterministic, high-fidelity Operating Systems simulation engine written in pu
 5. **Frontends**:
    - `libprism.a`: Standalone C library with zero I/O or GUI dependencies.
    - `prism-cli`: Headless batch experiment runner, text Gantt chart generator, and CSV exporter.
-   - `prism-tui`: Interactive `htop`-style ncurses dashboard with live frame allocation grid and fault injection.
+   - `prism-tui`: Interactive `htop`-style ncurses dashboard with live frame allocation grid, fault injection, rewind and a side-by-side scheduler comparison.
+   - `prism-gui`: raylib "Packet Tracer for processes" (see below).
 
 ---
 
@@ -87,15 +97,20 @@ flowchart TD
     subgraph Frontends ["Front-Ends"]
         CLI["prism-cli (Headless / CSV / Experiments)"]
         TUI["prism-tui (ncurses Live Dashboard)"]
+        GUI["prism-gui (raylib canvas, Compare, Explain)"]
     end
+
+    API["sim_api.h: spawn / reset / live policy switch / observer"]
 
     Clock --> State
     State <--> CPU
     State <--> Memory
     Memory -- "Page Fault & Eviction" --> Cores
     State --> EventLog
-    State --> CLI
-    State --> TUI
+    State --> API
+    API --> CLI
+    API --> TUI
+    API --> GUI
 ```
 
 ---
@@ -104,101 +119,152 @@ flowchart TD
 
 ```
 .
-├── Makefile                     # Release, debug, ASan/UBSan, valgrind targets
-├── include/
-│   └── prism/
-│       ├── types.h              # Data types, event enums, limits
-│       ├── prng.h               # Deterministic xorshift64* generator
-│       ├── hash.h               # FNV-1a 64-bit log hasher
-│       ├── pcb.h                # Process Control Block & Page Tables
-│       ├── sched.h              # struct sched_ops interface
-│       ├── vm.h                 # struct repl_ops interface & frame table
-│       ├── sim.h                # Master flat sim_t state and engine API
-│       └── workload.h           # Text workload parser & generators
+├── Makefile                     # Release, ASan/UBSan, valgrind, gui targets
+├── include/prism/
+│   ├── types.h  pcb.h  sim.h    # Flat sim_t machine state, PCB, events, limits
+│   ├── prng.h   hash.h          # xorshift64* generator, FNV-1a trace hash
+│   ├── sched.h  vm.h            # sched_ops_t / repl_ops_t policy interfaces
+│   ├── sim_api.h                # Interactive API used by every frontend
+│   ├── scenario.h               # Scenario save/load (workload + GUI layout)
+│   ├── metrics.h                # Metrics and same-seed algorithm comparison
+│   └── workload.h               # Workload parser and generators
 ├── src/
-│   ├── engine/
-│   │   ├── sim.c                # Engine tick loop, queues, fault injection
-│   │   └── workload.c           # Workload file parser and synthetic builders
-│   ├── sched/
-│   │   └── schedulers.c         # FCFS, RR, MLFQ, Adaptive
-│   ├── vm/
-│   │   └── replacement.c        # FIFO, LRU, Clock, Optimal (Belady OPT)
-│   ├── cli/
-│   │   └── main.c               # Headless CLI & experiments runner
-│   └── ui/
-│       └── tui.c                # Interactive ncurses dashboard
-├── tests/
-│   ├── test_harness.h           # Assertion-based test suite macros
-│   └── test_prism.c             # Determinism, rewind, Belady & textbook tests
-└── workloads/
-    ├── textbook_rr.txt          # Standard textbook scheduling scenario
-    ├── classic_vm.txt           # Classic 7,0,1,2,0,3... page reference string
-    ├── belady.txt               # Belady's anomaly reference string
-    └── mixed_demo.txt           # Multi-core mixed CPU/IO/Memory workload
+│   ├── engine/                  # sim.c (tick loop), sim_api.c, scenario.c, metrics.c, workload.c
+│   ├── sched/schedulers.c       # FCFS, RR, SJF, SRTF, MLFQ, Adaptive, CFS, BFS
+│   ├── vm/replacement.c         # FIFO, LRU, Clock, Optimal
+│   ├── cli/main.c               # prism-cli
+│   └── ui/tui.c                 # prism-tui
+├── gui/                         # prism-gui (raylib): canvas, animation, explain, Gantt, compare
+├── tests/                       # test_prism.c, test_api.c, test_metrics.c (+ test_harness.h)
+└── workloads/                   # 9 scenarios, each with a comment on what to look for
 ```
 
 ---
 
 ## Quickstart & Build Targets
 
+Needs a C11 compiler and `make`. `prism-tui` needs ncurses; `prism-gui` needs raylib 5.x. The core library and `prism-cli` need only libc and libm.
+
 ```bash
-# Standard release build (-O2 -Wall -Wextra -Wpedantic)
-make
-
-# Run automated assert-based unit tests
-make test
-
-# Run tests under AddressSanitizer & UndefinedBehaviorSanitizer
-make sanitize
-
-# Run Valgrind leak and memory cleanliness verification
-make valgrind
-
-# Run all 3 course project experiments & snapshot verification
-make experiments
+make              # build/libprism.a, prism-cli, prism-tui  (-O2 -Wall -Wextra -Wpedantic, warning-free)
+make test         # build and run every tests/test_*.c
+make sanitize     # clean rebuild + tests under AddressSanitizer and UBSan (leak check on)
+make valgrind     # tests under valgrind (needs glibc debug symbols installed)
+make gui          # prism-gui
+make experiments  # ./prism-cli --all-exp
+./prism-cli --help
 ```
+
+### Test output
+
+`make test` runs 28 tests in three suites:
+
+```
+=== Running Test Suite: PRISM Interactive API (sim_api / scenario) ===
+  [RUN]  proc_spec validation rejects bad scripts ... PASS
+  [RUN]  Spawn process mid-run arrives now and completes ... PASS
+  [RUN]  Reset then rerun reproduces metrics and trace hash ... PASS
+  [RUN]  Remove: only NEW/TERMINATED, pids never reused ... PASS
+  [RUN]  Update: allowed before first run only ... PASS
+  [RUN]  Observer sees every event in trace order; no effect on hash ... PASS
+  [RUN]  step_event advances to the next notable event ... PASS
+  [RUN]  Live scheduler switch keeps every ready process; names resolve ... PASS
+  [RUN]  set_frames validates, resets, and changes fault counts ... PASS
+  [RUN]  set_cores resets; set_disk_latency applies live ... PASS
+  [RUN]  Scenario save/load round-trips script, config and layout ... PASS
+  [RUN]  Old workload files load via scenario_load (Belady still 9 faults) ... PASS
+All 12 tests passed successfully!
+
+=== Running Test Suite: Metrics & algorithm comparison ===
+  [RUN]  textbook RR workload: average waiting time per scheduler ... PASS
+  [RUN]  metrics: turnaround, response, utilisation, throughput ... PASS
+  [RUN]  classic reference string: FIFO 15, LRU 12, OPT 9 faults (3 frames) ... PASS
+  [RUN]  frame override shows Belady's anomaly (FIFO 3 -> 9, 4 -> 10) ... PASS
+  [RUN]  variant from a mid-run base = variant from a fresh base; base untouched ... PASS
+  [RUN]  sim_run_bounded stops after max_ticks ... PASS
+All 6 tests passed successfully!
+
+=== Running Test Suite: PRISM Core, Scheduling & VM Suite ===
+  [RUN]  Log Determinism & FNV-1a Hash Invariance ... PASS
+  [RUN]  Flat State Memcpy Snapshot & Rewind Verification ... PASS
+  [RUN]  Textbook Classic Page Replacement (FIFO=15, LRU=12, OPT=9) ... PASS
+  [RUN]  Belady's Anomaly (FIFO 3 frames = 9 faults, 4 frames = 10 faults) ... PASS
+  [RUN]  Fault Injection: Process Termination & Dynamic RAM Shrink ... PASS
+  [RUN]  Textbook SJF and SRTF Scheduling Verification ... PASS
+  [RUN]  CFS and BFS Schedulers Invariance & Fairness ... PASS
+  [RUN]  CFS: CPU share follows weight; a waking sleeper is not sent to the back ... PASS
+  [RUN]  Resource Manager, WFG Cycle Detection & Checkpoint Rollback ... PASS
+  [RUN]  IPC Message Queue Producer-Consumer Synchronization ... PASS
+All 10 tests passed successfully!
+```
+
+The same 28 tests pass under `make sanitize` with no ASan, UBSan or leak reports.
 
 ---
 
-## Experiments & Academic Results
+## Experiments
 
-### Experiment 1: Scheduler Comparison on Mixed Workload
-Compares FCFS, Round Robin, MLFQ, and Adaptive schedulers under a mixed workload (CPU-bound, interactive, I/O-bound processes):
+### Experiment 1: Scheduler comparison on a mixed workload
+Six processes (CPU-bound, interactive, I/O-bound) under all 8 schedulers, same seed:
 ```bash
 ./prism-cli --exp1
 ```
-Output:
 ```
 Scheduler    Avg Wait   Avg Turn   Avg Resp   Ctx Switches CPU Util %
 ----------------------------------------------------------------------
-FCFS         79.17      119.50     1.67       88           98.1%
-Round Robin  87.17      125.50     1.67       112          99.4%
-MLFQ         72.17      104.17     1.67       81           99.3%
-Adaptive     86.67      124.50     1.67       103          96.9%
+FCFS         64.50      119.50     1.67       88           98.1     %
+SJF          28.00      62.50      9.50       47           95.8     %
+SRTF         27.83      61.33      10.17      51           93.3     %
+Round Robin  68.50      125.50     1.67       112          99.4     %
+MLFQ         58.67      104.17     1.67       81           99.3     %
+Adaptive     69.50      124.50     1.67       103          96.9     %
+CFS          55.17      97.17      2.00       83           98.5     %
+BFS          68.50      125.50     1.67       112          99.4     %
 ```
+SJF and SRTF minimise waiting time at the cost of response time. BFS equals Round Robin here because every process has the same priority.
 
-### Experiment 2: Replacement vs. Frame Count & Belady's Anomaly
-Runs FIFO, LRU, Clock, and Optimal against Belady's reference string `[1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5]` and the classic reference string:
+### Experiment 2: Replacement policy vs. frame count, and Belady's anomaly
+FIFO, LRU, Clock and Optimal on Belady's reference string `[1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5]` and the classic 20-reference string:
 ```bash
 ./prism-cli --exp2
 ```
-Key verification:
-- **Classic String (3 frames)**: FIFO = 15 faults, LRU = 12 faults, OPT = 9 faults.
-- **Belady's Anomaly**: FIFO with 3 frames yields **9 faults**, while 4 frames yields **10 faults**!
+```
+Frames   FIFO       LRU        Clock      OPT
+3        9          10         9          7
+4        10         8          10         6          <-- Belady Anomaly! (FIFO 3f=9 vs 4f=10)
+5        5          5          5          5
 
-### Experiment 3: RAM Shrinking, Thrashing & Adaptive Mitigation
-Throttles available frames from 12 down to 6 and 3 frames to observe thrashing:
+Classic reference string (3 frames): FIFO=15 | LRU=12 | Clock=14 | OPT=9
+```
+
+### Experiment 3: Shrinking RAM and thrashing
+Four processes with a combined working set of 12 pages, run with 12, 6 and 3 frames:
 ```bash
 ./prism-cli --exp3
 ```
-- With **12 frames**: Working set fits in RAM $\to$ **12 cold faults**, total duration 138 ticks.
-- With **6 and 3 frames**: Working set exceeds RAM $\to$ **100 faults**, total duration doubles to 248 ticks due to persistent disk stall bottlenecks.
+```
+Frames     Policy       CPU Util     Total Faults Total Ticks
+12         RoundRobin   95.7       % 12           138
+12         Adaptive     95.7       % 12           138
+6          RoundRobin   88.7       % 100          248
+6          Adaptive     88.7       % 100          248
+3          RoundRobin   88.7       % 100          248
+3          Adaptive     88.7       % 100          248
+```
+With 12 frames there are only the 12 cold faults. Once the working set no longer fits, every one of the 100 references faults and the run takes 248 ticks instead of 138. The Adaptive scheduler does **not** help on this workload: all four processes thrash equally, so demoting the thrashing ones changes nothing.
 
-### Step-Backward & Snapshot Determinism Verification
+### Rewind and determinism
 ```bash
 ./prism-cli --rewind-demo
 ```
-Demonstrates that a simulation can be snapshotted at tick 15, run to completion, restored, re-run to completion, and produce an identical FNV-1a 64-bit hash.
+Snapshots the machine at tick 15, runs to completion, restores the snapshot, runs again, and checks that both runs end with the same FNV-1a trace hash.
+
+Other demos: `--compare-sched`, `--compare-vm`, `--deadlock-demo` (wait-for-graph cycle detection and checkpoint rollback), `--all-exp`.
+
+A flag given on the command line overrides the matching line of the workload file:
+```bash
+./prism-cli --workload workloads/interactive_mix.txt --sched cfs --repl clock --csv
+```
 
 ---
 
@@ -264,25 +330,31 @@ make -C ~/raylib/src PLATFORM=PLATFORM_DESKTOP && make gui RAYLIB_DIR=~/raylib
 
 ## Interactive Dashboard (`prism-tui`)
 
-Launch the visual dashboard:
 ```bash
-./prism-tui workloads/mixed_demo.txt
+./prism-tui workloads/interactive_mix.txt
 ```
+
+![prism-tui](docs/prism-tui.png)
+
+Press `C` for the scheduler comparison: the scenario on screen is rewound and run to completion under each of the 8 schedulers with the same seed. The current scheduler is marked, the lowest average wait is green.
+
+![prism-tui comparison](docs/prism-tui-compare.png)
 
 ### Key Bindings
 | Key | Action |
 |-----|--------|
-| `[SPACE]` | Play / Pause simulation |
-| `[S]` | Single-step 1 tick forward |
-| `[B]` | **Step backward / Rewind** to previous snapshot |
-| `[M]` | Cycle CPU Scheduler (FCFS $\to$ RR $\to$ MLFQ $\to$ Adaptive) |
-| `[P]` | Cycle Page Replacement Policy (FIFO $\to$ LRU $\to$ Clock $\to$ OPT) |
-| `[K]` | **Fault Injection**: Kill currently selected process |
-| `[D]` | **Fault Injection**: Shrink available RAM frames |
-| `[UP] / [DOWN]` | Select process in process table |
-| `[+] / [-]` | Increase / decrease simulation step delay |
-| `[R]` | Reset simulation to tick 0 |
-| `[Q]` | Quit dashboard |
+| `Space` | Run / pause |
+| `S` | Step one tick |
+| `B` | Step back one tick (the last 500 ticks are kept) |
+| `M` | Next scheduler, applied live (FCFS, RR, SJF, SRTF, MLFQ, Adaptive, CFS, BFS) |
+| `P` | Next page-replacement policy, applied live (FIFO, LRU, Clock, OPT) |
+| `C` | Toggle the scheduler comparison table |
+| `K` | Fault injection: kill the selected process |
+| `D` | Fault injection: remove 2 frames of RAM |
+| `Up` / `Down` | Select a process |
+| `+` / `-` | Faster / slower |
+| `R` | Reset to tick 0 |
+| `Q` | Quit |
 
 ---
 
@@ -295,7 +367,7 @@ Launch the visual dashboard:
 3. **Demonstrate Rewind**:
    Press `[B]` several times. Show the entire state machine (cores, frames, page tables, queues) stepping backwards seamlessly.
 4. **Switch Policies Mid-Run**:
-   Press `[M]` to switch schedulers (e.g. from RR to MLFQ) and `[P]` to switch replacement (e.g. FIFO to Optimal).
+   Press `[M]` to switch schedulers (e.g. from RR to MLFQ) and `[P]` to switch replacement (e.g. FIFO to Optimal). Press `[C]` to see how every scheduler would have done on the same scenario.
 5. **Fault Injection & Thrashing**:
    Press `[D]` to dynamically shrink RAM frames mid-run and show page evictions exploding.
 6. **Show Benchmark Experiments**:

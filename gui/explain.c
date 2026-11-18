@@ -4,19 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/*
- * "Explain": turns trace events into sentences a student can follow
- * ("SJF dispatches P2: shortest next CPU burst (4). Others: P3=9, P4=5").
- * Sentences are written inside the observer, because that is the only moment
- * the state that justified the decision (the other ready processes, the
- * victim frame's load/use times) is still visible. Pure view: reads sim_t,
- * never changes it.
- */
-
-/* ------------------------------------------------------------------------
- * Algorithm cards
- * ------------------------------------------------------------------------ */
-
 static const algo_info_t g_sched_info[SCHED_COUNT] = {
     [SCHED_FCFS] = {"FCFS (First Come, First Served)", "Run processes in arrival order, each until it blocks or ends.",
         "The ready queue is a plain FIFO. The process at the head gets the CPU and keeps it until its CPU burst ends.",
@@ -83,16 +70,18 @@ static const algo_info_t g_repl_info[REPL_COUNT] = {
         "Needs the future, so it is impossible in a real OS; only for comparison.", "-"},
 };
 
-const algo_info_t *explain_sched_info(sched_policy_t p) {
-    return (p >= 0 && p < SCHED_COUNT) ? &g_sched_info[p] : &g_sched_info[0];
+const algo_info_t *explain_sched_info(sched_policy_t policy) {
+    bool known = policy >= 0 && policy < SCHED_COUNT;
+    return &g_sched_info[known ? policy : 0];
 }
 
-const algo_info_t *explain_repl_info(repl_policy_t p) {
-    return (p >= 0 && p < REPL_COUNT) ? &g_repl_info[p] : &g_repl_info[0];
+const algo_info_t *explain_repl_info(repl_policy_t policy) {
+    bool known = policy >= 0 && policy < REPL_COUNT;
+    return &g_repl_info[known ? policy : 0];
 }
 
 float explain_draw_card(const algo_info_t *a, float x, float y, float w) {
-    float y0 = y;
+    float top = y;
     ui_text(x, y, 16, UI_TEXT, "%s", a->name);
     y += 22;
     y += ui_text_wrapped(x, y, w, 13, UI_ACCENT, a->summary) + 4;
@@ -105,62 +94,67 @@ float explain_draw_card(const algo_info_t *a, float x, float y, float w) {
     y += ui_text_wrapped(x + 14, y, w - 14, 13, UI_TEXT, a->good) + 2;
     ui_text(x, y, 13, UI_BAD, "-");
     y += ui_text_wrapped(x + 14, y, w - 14, 13, UI_TEXT, a->bad);
-    return y - y0;
+    return y - top;
 }
 
-/* ------------------------------------------------------------------------
- * Narration
- * ------------------------------------------------------------------------ */
-
-static const char *pname(const sim_t *s, int pid) {
-    return (pid >= 0 && pid < s->num_processes) ? s->procs[pid].name : "?";
+static const char *process_name(const sim_t *s, int pid) {
+    return pid >= 0 && pid < s->num_processes ? s->procs[pid].name : "?";
 }
 
 static int cpu_burst_len(const pcb_t *p, bool remaining) {
-    if (p->curr_burst_idx >= p->num_bursts || p->bursts[p->curr_burst_idx].kind != BURST_CPU) return 0;
-    return remaining ? p->bursts[p->curr_burst_idx].remaining : p->bursts[p->curr_burst_idx].duration;
+    if (p->curr_burst_idx >= p->num_bursts) return 0;
+
+    const burst_t *burst = &p->bursts[p->curr_burst_idx];
+    if (burst->kind != BURST_CPU) return 0;
+    return remaining ? burst->remaining : burst->duration;
 }
 
-/* The value the current scheduler compares, for "why this one" sentences. */
-static bool sched_key(const sim_t *s, const pcb_t *p, char *out, size_t n) {
+static bool scheduling_key(const sim_t *s, const pcb_t *p, char *out, size_t size) {
     switch (s->sched_policy) {
-        case SCHED_SJF:  snprintf(out, n, "%d", cpu_burst_len(p, false)); return true;
-        case SCHED_SRTF: snprintf(out, n, "%d", cpu_burst_len(p, true)); return true;
-        case SCHED_CFS:  snprintf(out, n, "%.1f", (double)p->vruntime / 100.0); return true;
-        case SCHED_BFS:  snprintf(out, n, "t%" PRIu64, (uint64_t)p->virtual_deadline); return true;
-        case SCHED_MLFQ: case SCHED_ADAPTIVE: snprintf(out, n, "Q%u", p->priority); return true;
-        default:         out[0] = '\0'; return false;
+        case SCHED_SJF:      snprintf(out, size, "%d", cpu_burst_len(p, false)); return true;
+        case SCHED_SRTF:     snprintf(out, size, "%d", cpu_burst_len(p, true)); return true;
+        case SCHED_CFS:      snprintf(out, size, "%.1f", (double)p->vruntime / 100.0); return true;
+        case SCHED_BFS:      snprintf(out, size, "t%" PRIu64, (uint64_t)p->virtual_deadline); return true;
+        case SCHED_MLFQ:
+        case SCHED_ADAPTIVE: snprintf(out, size, "Q%u", p->priority); return true;
+        default:             out[0] = '\0'; return false;
     }
 }
 
-/* "P3=9, P4=5" for up to 5 processes still in the ready queues. */
-static void others(const sim_t *s, char *out, size_t n) {
-    size_t off = 0;
-    int shown = 0, total = 0;
+static void describe_waiting(const sim_t *s, char *out, size_t size) {
+    enum { MAX_LISTED = 5 };
+    size_t used = 0;
+    int listed = 0, waiting = 0;
     out[0] = '\0';
+
     for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
-        int guard = 0;
-        for (int pid = s->ready_head[q]; pid != -1 && guard < PRISM_MAX_PROCESSES; pid = s->procs[pid].next_proc, guard++) {
-            total++;
-            if (shown >= 5 || off + 24 >= n) continue;
+        int visited = 0;
+        for (int pid = s->ready_head[q]; pid != -1 && visited < PRISM_MAX_PROCESSES; pid = s->procs[pid].next_proc, visited++) {
+            waiting++;
+            if (listed >= MAX_LISTED || used + 24 >= size) continue;
+
             char key[24];
-            bool has = sched_key(s, &s->procs[pid], key, sizeof(key));
-            off += (size_t)snprintf(out + off, n - off, has ? "%s%s=%s" : "%s%s", shown ? ", " : "", s->procs[pid].name, key);
-            shown++;
+            bool has_key = scheduling_key(s, &s->procs[pid], key, sizeof(key));
+            const char *separator = listed ? ", " : "";
+            used += (size_t)snprintf(out + used, size - used, has_key ? "%s%s=%s" : "%s%s",
+                                     separator, s->procs[pid].name, key);
+            listed++;
         }
     }
-    if (total > shown && off + 12 < n) snprintf(out + off, n - off, " +%d more", total - shown);
+    if (waiting > listed && used + 12 < size) snprintf(out + used, size - used, " +%d more", waiting - listed);
 }
 
-static void push(gui_t *g, const sim_event_t *ev, const char *fmt, ...) {
-    narr_t *e;
-    if (g->narr_len < GUI_NARR_CAP) {
-        e = &g->narr[(g->narr_start + g->narr_len) % GUI_NARR_CAP];
-        g->narr_len++;
-    } else {
-        e = &g->narr[g->narr_start];
-        g->narr_start = (g->narr_start + 1) % GUI_NARR_CAP;
+static narration_t *next_narration_slot(gui_t *g) {
+    if (g->narration_len < GUI_NARR_CAP) {
+        return &g->narration[(g->narration_start + g->narration_len++) % GUI_NARR_CAP];
     }
+    narration_t *oldest = &g->narration[g->narration_start];
+    g->narration_start = (g->narration_start + 1) % GUI_NARR_CAP;
+    return oldest;
+}
+
+static void narrate(gui_t *g, const sim_event_t *ev, const char *fmt, ...) {
+    narration_t *e = next_narration_slot(g);
     e->tick = ev->tick;
     e->pid = ev->pid;
     e->type = ev->type;
@@ -171,189 +165,249 @@ static void push(gui_t *g, const sim_event_t *ev, const char *fmt, ...) {
 }
 
 void explain_clear(gui_t *g) {
-    g->narr_start = g->narr_len = 0;
-    g->narr_scroll = 0;
+    g->narration_start = g->narration_len = 0;
+    g->narration_scroll = 0;
+}
+
+static void dispatch_reason(const sim_t *s, const pcb_t *p, char *why, size_t size) {
+    switch (s->sched_policy) {
+        case SCHED_FCFS:
+            snprintf(why, size, "it is first in the ready queue (FIFO order)");
+            break;
+        case SCHED_RR:
+            snprintf(why, size, "head of the ready queue, for a quantum of %u ticks", s->default_quantum);
+            break;
+        case SCHED_SJF:
+            snprintf(why, size, "shortest next CPU burst (%d ticks)", cpu_burst_len(p, false));
+            break;
+        case SCHED_SRTF:
+            snprintf(why, size, "least remaining CPU time (%d ticks)", cpu_burst_len(p, true));
+            break;
+        case SCHED_MLFQ:
+            snprintf(why, size, "from Q%u, the highest non-empty level (quantum %u)", p->priority, p->quantum_remaining);
+            break;
+        case SCHED_ADAPTIVE:
+            snprintf(why, size, "from level %u (quantum %u)", p->priority, p->quantum_remaining);
+            break;
+        case SCHED_CFS:
+            snprintf(why, size, "smallest virtual runtime (%.1f)", (double)p->vruntime / 100.0);
+            break;
+        case SCHED_BFS:
+            snprintf(why, size, "earliest virtual deadline (t%" PRIu64 ")", (uint64_t)p->virtual_deadline);
+            break;
+        default:
+            snprintf(why, size, "chosen by the policy");
+            break;
+    }
 }
 
 static void explain_dispatch(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
     const pcb_t *p = &s->procs[ev->pid];
-    const char *n = p->name;
-    const char *alg = sched_get_ops(s->sched_policy)->name;
-    char rest[160], why[120];
-    others(s, rest, sizeof(rest));
-    switch (s->sched_policy) {
-        case SCHED_FCFS: snprintf(why, sizeof(why), "it is first in the ready queue (FIFO order)"); break;
-        case SCHED_RR:   snprintf(why, sizeof(why), "head of the ready queue, for a quantum of %u ticks", s->default_quantum); break;
-        case SCHED_SJF:  snprintf(why, sizeof(why), "shortest next CPU burst (%d ticks)", cpu_burst_len(p, false)); break;
-        case SCHED_SRTF: snprintf(why, sizeof(why), "least remaining CPU time (%d ticks)", cpu_burst_len(p, true)); break;
-        case SCHED_MLFQ: snprintf(why, sizeof(why), "from Q%u, the highest non-empty level (quantum %u)", p->priority, p->quantum_remaining); break;
-        case SCHED_ADAPTIVE: snprintf(why, sizeof(why), "from level %u (quantum %u)", p->priority, p->quantum_remaining); break;
-        case SCHED_CFS:  snprintf(why, sizeof(why), "smallest virtual runtime (%.1f)", (double)p->vruntime / 100.0); break;
-        case SCHED_BFS:  snprintf(why, sizeof(why), "earliest virtual deadline (t%" PRIu64 ")", (uint64_t)p->virtual_deadline); break;
-        default:         snprintf(why, sizeof(why), "chosen by the policy"); break;
+    const char *policy = sched_get_ops(s->sched_policy)->name;
+
+    char waiting[160], why[120];
+    describe_waiting(s, waiting, sizeof(waiting));
+    dispatch_reason(s, p, why, sizeof(why));
+
+    if (waiting[0]) {
+        narrate(g, ev, "%s picks %s for core %d: %s. Still waiting: %s.", policy, p->name, ev->core_id, why, waiting);
+    } else {
+        narrate(g, ev, "%s picks %s for core %d: %s. Nobody else is waiting.", policy, p->name, ev->core_id, why);
     }
-    if (rest[0]) push(g, ev, "%s picks %s for core %d: %s. Still waiting: %s.", alg, n, ev->core_id, why, rest);
-    else push(g, ev, "%s picks %s for core %d: %s. Nobody else is waiting.", alg, n, ev->core_id, why);
 }
 
 static void explain_preempt(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
-    const char *n = pname(s, ev->pid);
+    const char *n = process_name(s, ev->pid);
     switch (s->sched_policy) {
         case SCHED_RR:
-            push(g, ev, "%s used its whole %u-tick quantum: preempted, back to the END of the ready queue.", n, s->default_quantum);
+            narrate(g, ev, "%s used its whole %u-tick quantum: preempted, back to the END of the ready queue.", n, s->default_quantum);
             break;
         case SCHED_MLFQ:
-            push(g, ev, "%s used its whole quantum, so MLFQ treats it as CPU-bound: now in Q%d (lower priority, longer quantum).",
+            narrate(g, ev, "%s used its whole quantum, so MLFQ treats it as CPU-bound: now in Q%d (lower priority, longer quantum).",
                  n, ev->detail1);
             break;
         case SCHED_SRTF:
-            push(g, ev, "%s preempted: a ready process needs only %d ticks, %s still needs %d. Shortest remaining time wins.",
+            narrate(g, ev, "%s preempted: a ready process needs only %d ticks, %s still needs %d. Shortest remaining time wins.",
                  n, ev->detail2, n, ev->detail1);
             break;
         case SCHED_CFS:
-            push(g, ev, "%s's 2-tick slice ended (vruntime now %d); CFS switches to the lowest vruntime.", n, ev->detail1);
+            narrate(g, ev, "%s's 2-tick slice ended (vruntime now %d); CFS switches to the lowest vruntime.", n, ev->detail1);
             break;
         case SCHED_BFS:
-            push(g, ev, "%s's 2-tick slice ended; new virtual deadline t%d, so earlier deadlines go first.", n, ev->detail1);
+            narrate(g, ev, "%s's 2-tick slice ended; new virtual deadline t%d, so earlier deadlines go first.", n, ev->detail1);
             break;
         default:
-            push(g, ev, "%s's quantum expired: preempted and back to the ready queue.", n);
+            narrate(g, ev, "%s's quantum expired: preempted and back to the ready queue.", n);
+            break;
+    }
+}
+
+static int references_until_next_use(const pcb_t *owner, int vpage) {
+    for (int r = owner->curr_page_ref_idx; r < owner->num_page_refs; r++) {
+        if (owner->page_refs[r] == vpage) return r - owner->curr_page_ref_idx;
+    }
+    return -1;
+}
+
+static void eviction_reason(const sim_t *s, const sim_event_t *ev, const frame_entry_t *frame, char *why, size_t size) {
+    switch (s->repl_policy) {
+        case REPL_FIFO:
+            snprintf(why, size, "it was loaded longest ago (t%" PRIu64 ")", (uint64_t)frame->load_tick);
+            break;
+        case REPL_LRU:
+            snprintf(why, size, "it is the least recently used (last use t%" PRIu64 ")", (uint64_t)frame->last_access_tick);
+            break;
+        case REPL_CLOCK:
+            snprintf(why, size, "the clock hand found its reference bit at 0 (others got a second chance)");
+            break;
+        case REPL_OPT: {
+            int distance = references_until_next_use(&s->procs[ev->pid], ev->detail1);
+            if (distance < 0) snprintf(why, size, "it is never used again");
+            else snprintf(why, size, "its next use is farthest away (%d references ahead)", distance);
+            break;
+        }
+        default:
+            snprintf(why, size, "chosen by the policy");
             break;
     }
 }
 
 static void explain_evict(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
-    int f = ev->detail2;
-    if (f < 0 || f >= s->total_frames) return;
-    const frame_entry_t *fe = &s->frames[f];   /* not overwritten yet: the engine logs before loading */
-    const char *alg = repl_get_ops(s->repl_policy)->name;
+    int frame_idx = ev->detail2;
+    if (frame_idx < 0 || frame_idx >= s->total_frames) return;
+
     char why[120];
-    switch (s->repl_policy) {
-        case REPL_FIFO: snprintf(why, sizeof(why), "it was loaded longest ago (t%" PRIu64 ")", (uint64_t)fe->load_tick); break;
-        case REPL_LRU:  snprintf(why, sizeof(why), "it is the least recently used (last use t%" PRIu64 ")", (uint64_t)fe->last_access_tick); break;
-        case REPL_CLOCK: snprintf(why, sizeof(why), "the clock hand found its reference bit at 0 (others got a second chance)"); break;
-        case REPL_OPT: {
-            const pcb_t *o = &s->procs[ev->pid];
-            int dist = -1;
-            for (int r = o->curr_page_ref_idx; r < o->num_page_refs; r++) {
-                if (o->page_refs[r] == ev->detail1) { dist = r - o->curr_page_ref_idx; break; }
-            }
-            if (dist < 0) snprintf(why, sizeof(why), "it is never used again");
-            else snprintf(why, sizeof(why), "its next use is farthest away (%d references ahead)", dist);
-            break;
-        }
-        default: snprintf(why, sizeof(why), "chosen by the policy"); break;
-    }
-    push(g, ev, "RAM is full. %s evicts page %d of %s from frame %d: %s.", alg, ev->detail1, pname(s, ev->pid), f, why);
+    eviction_reason(s, ev, &s->frames[frame_idx], why, sizeof(why));
+    narrate(g, ev, "RAM is full. %s evicts page %d of %s from frame %d: %s.",
+            repl_get_ops(s->repl_policy)->name, ev->detail1, process_name(s, ev->pid), frame_idx, why);
 }
 
 void explain_event(gui_t *g, const sim_event_t *ev) {
     const sim_t *s = g->sim;
-    const char *n = pname(s, ev->pid);
+    const char *n = process_name(s, ev->pid);
     switch (ev->type) {
         case EVENT_PROC_ARRIVE:
-            if (s->sched_policy == SCHED_MLFQ) push(g, ev, "%s arrives and enters the top queue Q0.", n);
-            else push(g, ev, "%s arrives and joins the ready queue.", n);
+            if (s->sched_policy == SCHED_MLFQ) narrate(g, ev, "%s arrives and enters the top queue Q0.", n);
+            else narrate(g, ev, "%s arrives and joins the ready queue.", n);
             break;
         case EVENT_PROC_DISPATCH: explain_dispatch(g, ev); break;
         case EVENT_PROC_PREEMPT:  explain_preempt(g, ev); break;
         case EVENT_PROC_BLOCK_IO:
-            push(g, ev, "%s finished a CPU burst and starts %d ticks of I/O. It gives up the CPU (blocked, not ready).", n, ev->detail1);
+            narrate(g, ev, "%s finished a CPU burst and starts %d ticks of I/O. It gives up the CPU (blocked, not ready).", n, ev->detail1);
             break;
         case EVENT_PROC_WAKE_IO:
-            push(g, ev, "%s's I/O is done: back to the ready queue.", n);
+            narrate(g, ev, "%s's I/O is done: back to the ready queue.", n);
             break;
         case EVENT_PAGE_FAULT:
-            push(g, ev, "%s touches page %d, which is not in any frame: PAGE FAULT.", n, ev->detail1);
+            narrate(g, ev, "%s touches page %d, which is not in any frame: PAGE FAULT.", n, ev->detail1);
             break;
         case EVENT_PROC_BLOCK_FAULT:
-            push(g, ev, "%s blocks for %d ticks while the disk reads page %d. The CPU is free for others.", n, s->disk_latency, ev->detail1);
+            narrate(g, ev, "%s blocks for %d ticks while the disk reads page %d. The CPU is free for others.", n, s->disk_latency, ev->detail1);
             break;
         case EVENT_PAGE_EVICT: explain_evict(g, ev); break;
         case EVENT_PROC_WAKE_FAULT: {
-            int f = (ev->pid >= 0 && ev->detail1 >= 0 && ev->detail1 < PRISM_MAX_VIRTUAL_PAGES) ? s->procs[ev->pid].pt[ev->detail1].frame_idx : -1;
-            push(g, ev, "Page %d of %s is now in frame %d; %s is ready again and will retry the access.", ev->detail1, n, f, n);
+            bool valid_page = ev->pid >= 0 && ev->detail1 >= 0 && ev->detail1 < PRISM_MAX_VIRTUAL_PAGES;
+            int frame_idx = valid_page ? s->procs[ev->pid].pt[ev->detail1].frame_idx : -1;
+            narrate(g, ev, "Page %d of %s is now in frame %d; %s is ready again and will retry the access.",
+                    ev->detail1, n, frame_idx, n);
             break;
         }
         case EVENT_PROC_TERMINATE: {
             const pcb_t *p = &s->procs[ev->pid];
-            int64_t tat = p->finish_tick - (int64_t)p->arrival_tick;
-            push(g, ev, "%s finished at t%" PRId64 ". Turnaround = %" PRId64 " - %" PRIu64 " = %" PRId64 " ticks; it waited %u ticks in the ready queue.",
-                 n, p->finish_tick, p->finish_tick, (uint64_t)p->arrival_tick, tat, p->total_wait_time);
+            int64_t turnaround = p->finish_tick - (int64_t)p->arrival_tick;
+            narrate(g, ev, "%s finished at t%" PRId64 ". Turnaround = %" PRId64 " - %" PRIu64 " = %" PRId64
+                    " ticks; it waited %u ticks in the ready queue.",
+                    n, p->finish_tick, p->finish_tick, (uint64_t)p->arrival_tick, turnaround, p->total_wait_time);
             break;
         }
-        case EVENT_PROC_KILLED: push(g, ev, "%s was killed (fault injection).", n); break;
-        case EVENT_PAGE_ACCESS: break;   /* hits are too frequent to narrate */
+        case EVENT_PROC_KILLED: narrate(g, ev, "%s was killed (fault injection).", n); break;
+        case EVENT_PAGE_ACCESS: break;
         default:
-            push(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");
+            narrate(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");
             break;
     }
 }
 
-/* ------------------------------------------------------------------------
- * Drawing
- * ------------------------------------------------------------------------ */
+static const narration_t *narration_at(const gui_t *g, uint32_t i) {
+    return &g->narration[(g->narration_start + i) % GUI_NARR_CAP];
+}
 
-static const narr_t *narr_at(const gui_t *g, uint32_t i) {
-    return &g->narr[(g->narr_start + i) % GUI_NARR_CAP];
+static bool starts_new_tick(const gui_t *g, int64_t i) {
+    return i == 0 || narration_at(g, (uint32_t)(i - 1))->tick != narration_at(g, (uint32_t)i)->tick;
 }
 
 void panel_explain(gui_t *g, Rectangle body) {
-    const float size = 13, textx = 64;
-    float w = body.width - textx - 10;
+    const float font = 13, text_x = 64;
+    float text_w = body.width - text_x - 10;
+
     if (CheckCollisionPointRec(GetMousePosition(), body)) {
-        g->narr_scroll += GetMouseWheelMove() * 2;
-        if (g->narr_scroll < 0) g->narr_scroll = 0;
-        if (g->narr_scroll > (float)g->narr_len) g->narr_scroll = (float)g->narr_len;
+        g->narration_scroll += GetMouseWheelMove() * 2;
+        if (g->narration_scroll < 0) g->narration_scroll = 0;
+        if (g->narration_scroll > (float)g->narration_len) g->narration_scroll = (float)g->narration_len;
     }
-    if (g->narr_len == 0) {
+
+    if (g->narration_len == 0) {
         ui_text_wrapped(body.x + 10, body.y + 8, body.width - 20, 14, UI_TEXT_DIM,
                         "Every scheduling and memory decision is explained here as it happens. "
                         "Press Step (N) to advance one decision at a time, Back (B) to undo a tick.");
         return;
     }
+
+    tick_t newest_tick = narration_at(g, g->narration_len - 1)->tick;
     ui_scissor_push(body);
-    /* Bottom-up from the newest entry, skipping narr_scroll entries. */
     float y = body.y + body.height - 4;
-    for (int64_t i = (int64_t)g->narr_len - 1 - (int64_t)g->narr_scroll; i >= 0 && y > body.y; i--) {
-        const narr_t *e = narr_at(g, (uint32_t)i);
-        float h = ui_text_wrapped_height(w, size, e->text);
+    for (int64_t i = (int64_t)g->narration_len - 1 - (int64_t)g->narration_scroll; i >= 0 && y > body.y; i--) {
+        const narration_t *e = narration_at(g, (uint32_t)i);
+        float h = ui_text_wrapped_height(text_w, font, e->text);
         y -= h + 3;
-        bool newest_tick = (e->tick == narr_at(g, g->narr_len - 1)->tick);
-        if (newest_tick) DrawRectangleRec((Rectangle){body.x, y - 1, body.width, h + 3}, ColorAlpha(UI_ACCENT, 0.10f));
-        /* Label the first sentence of each tick (drawing goes bottom-up). */
-        if (i == 0 || narr_at(g, (uint32_t)(i - 1))->tick != e->tick) {
-            ui_text(body.x + 8, y, size, UI_TEXT_DIM, "t%" PRIu64, (uint64_t)e->tick);
+
+        if (e->tick == newest_tick) {
+            DrawRectangleRec((Rectangle){body.x, y - 1, body.width, h + 3}, ColorAlpha(UI_ACCENT, 0.10f));
+        }
+        if (starts_new_tick(g, i)) {
+            ui_text(body.x + 8, y, font, UI_TEXT_DIM, "t%" PRIu64, (uint64_t)e->tick);
             DrawLine((int)body.x + 4, (int)y - 2, (int)(body.x + body.width - 4), (int)y - 2, (Color){44, 49, 60, 255});
         }
-        if (e->pid >= 0) DrawRectangle((int)(body.x + textx - 12), (int)y + 4, 7, 7, proc_color(e->pid));
-        ui_text_wrapped(body.x + textx, y, w, size, event_color((event_type_t)e->type), e->text);
+        if (e->pid >= 0) DrawRectangle((int)(body.x + text_x - 12), (int)y + 4, 7, 7, proc_color(e->pid));
+        ui_text_wrapped(body.x + text_x, y, text_w, font, event_color((event_type_t)e->type), e->text);
     }
     ui_scissor_pop();
 }
 
+static uint32_t first_of_latest_tick(const gui_t *g, tick_t tick) {
+    enum { MAX_LINES = 3 };
+    uint32_t first = g->narration_len;
+    while (first > 0 && narration_at(g, first - 1)->tick == tick && g->narration_len - first < MAX_LINES) first--;
+    return first;
+}
+
 void explain_draw_latest(gui_t *g, Rectangle canvas) {
-    if (g->narr_len == 0 || (g->playing && g->speed > 6)) return;
-    tick_t t = narr_at(g, g->narr_len - 1)->tick;
-    if (t + 1 < g->sim->tick && g->playing) return;
-    /* Up to 3 sentences from the newest tick, oldest first. */
-    uint32_t first = g->narr_len;
-    while (first > 0 && narr_at(g, first - 1)->tick == t && g->narr_len - first < 3) first--;
+    bool too_fast = g->playing && g->speed > 6;
+    if (g->narration_len == 0 || too_fast) return;
+
+    tick_t tick = narration_at(g, g->narration_len - 1)->tick;
+    bool stale = tick + 1 < g->sim->tick;
+    if (stale && g->playing) return;
+
+    uint32_t first = first_of_latest_tick(g, tick);
     float w = canvas.width * 0.62f;
     if (w > 760) w = 760;
+
     float h = 10;
-    for (uint32_t i = first; i < g->narr_len; i++) h += ui_text_wrapped_height(w - 40, 14, narr_at(g, i)->text) + 4;
-    Rectangle r = {canvas.x + 12, canvas.y + canvas.height - h - 34, w, h + 22};
-    DrawRectangleRounded(r, 0.08f, 6, (Color){14, 16, 21, 225});
-    DrawRectangleRoundedLinesEx(r, 0.08f, 6, 1, UI_BORDER);
-    ui_text(r.x + 10, r.y + 5, 12, UI_ACCENT, "WHAT JUST HAPPENED (tick %" PRIu64 ")", (uint64_t)t);
-    float y = r.y + 24;
-    for (uint32_t i = first; i < g->narr_len; i++) {
-        const narr_t *e = narr_at(g, i);
-        if (e->pid >= 0) DrawRectangle((int)r.x + 12, (int)y + 5, 8, 8, proc_color(e->pid));
-        y += ui_text_wrapped(r.x + 28, y, w - 40, 14, UI_TEXT, e->text) + 4;
+    for (uint32_t i = first; i < g->narration_len; i++) h += ui_text_wrapped_height(w - 40, 14, narration_at(g, i)->text) + 4;
+
+    Rectangle box = {canvas.x + 12, canvas.y + canvas.height - h - 34, w, h + 22};
+    DrawRectangleRounded(box, 0.08f, 6, (Color){14, 16, 21, 225});
+    DrawRectangleRoundedLinesEx(box, 0.08f, 6, 1, UI_BORDER);
+    ui_text(box.x + 10, box.y + 5, 12, UI_ACCENT, "WHAT JUST HAPPENED (tick %" PRIu64 ")", (uint64_t)tick);
+
+    float y = box.y + 24;
+    for (uint32_t i = first; i < g->narration_len; i++) {
+        const narration_t *e = narration_at(g, i);
+        if (e->pid >= 0) DrawRectangle((int)box.x + 12, (int)y + 5, 8, 8, proc_color(e->pid));
+        y += ui_text_wrapped(box.x + 28, y, w - 40, 14, UI_TEXT, e->text) + 4;
     }
 }

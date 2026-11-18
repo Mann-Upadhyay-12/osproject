@@ -5,7 +5,6 @@
 #include <math.h>
 #include <string.h>
 
-/* sim_t is ~0.5 MB; keep test instances off the stack. */
 static sim_t g_base, g_v, g_w;
 
 static bool near(double a, double b) { return fabs(a - b) < 1e-9; }
@@ -28,11 +27,10 @@ static uint32_t faults_for(const char *path, repl_policy_t rp, int frames) {
 
 static void test_textbook_schedulers(void) {
     TEST_CASE("textbook RR workload: average waiting time per scheduler");
-    /* P1(0,8) P2(1,4) P3(2,9) P4(3,5), worked by hand. */
     ASSERT_TRUE(near(avg_wait_for("workloads/textbook_rr.txt", SCHED_FCFS), 35.0 / 4));
     ASSERT_TRUE(near(avg_wait_for("workloads/textbook_rr.txt", SCHED_SJF), 31.0 / 4));
     ASSERT_TRUE(near(avg_wait_for("workloads/textbook_rr.txt", SCHED_SRTF), 26.0 / 4));
-    ASSERT_TRUE(near(avg_wait_for("workloads/textbook_rr.txt", SCHED_RR), 47.0 / 4));   /* q = 4 */
+    ASSERT_TRUE(near(avg_wait_for("workloads/textbook_rr.txt", SCHED_RR), 47.0 / 4));
     TEST_PASS();
 }
 
@@ -48,7 +46,7 @@ static void test_metrics_fields(void) {
     ASSERT_TRUE(m.finished);
     ASSERT_EQ((int)m.makespan, 26);
     ASSERT_TRUE(near(m.avg_turnaround, (8 + 11 + 19 + 23) / 4.0));
-    ASSERT_TRUE(near(m.avg_response, m.avg_wait));   /* non-preemptive, CPU only */
+    ASSERT_TRUE(near(m.avg_response, m.avg_wait));
     ASSERT_EQ(m.max_wait, 18u);
     ASSERT_TRUE(near(m.cpu_util, 100.0));
     ASSERT_TRUE(near(m.throughput, 400.0 / 26));
@@ -95,7 +93,7 @@ static void test_variant_independent(void) {
     sim_run_bounded(&g_v, 100000);
 
     ASSERT_EQ(g_v.log_hash, g_w.log_hash);
-    ASSERT_EQ(g_obs_calls, calls);              /* the variant never reports to the base's observer */
+    ASSERT_EQ(g_obs_calls, calls);
     ASSERT_EQ(g_base.tick, base_tick);
     ASSERT_EQ(g_base.log_hash, base_hash);
     ASSERT_EQ(sim_prepare_variant(&g_v, &g_base, SCHED_COUNT, SIM_VARIANT_KEEP, 0, SIM_VARIANT_KEEP), SIM_ERR_INVALID);

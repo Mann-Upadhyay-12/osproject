@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdio.h>
 
-/* sim_t is ~0.5 MB; keep test instances off the stack. */
 static sim_t g_a, g_b;
 static layout_t g_la, g_lb;
 
@@ -15,7 +14,6 @@ static void tmp_path(char *out, size_t n, const char *name) {
     snprintf(out, n, "%s/%s", g_tmpdir, name);
 }
 
-/* A small, fully specified scenario used by most tests. */
 static void build_base(sim_t *s, sched_policy_t sp) {
     sim_init(s, 1, 4, 3, sp, REPL_LRU, 7);
     s->default_quantum = 3;
@@ -43,7 +41,7 @@ static void build_base(sim_t *s, sched_policy_t sp) {
 
 static void make_injected(proc_spec_t *spec) {
     proc_spec_init(spec, "Injected");
-    spec->arrival = 0;               /* in the past: must be clamped to "now" */
+    spec->arrival = 0;
     proc_spec_add_burst(spec, BURST_CPU, 4);
     proc_spec_add_burst(spec, BURST_IO, 2);
     proc_spec_add_burst(spec, BURST_CPU, 2);
@@ -97,7 +95,7 @@ static void test_spawn_mid_run(void) {
     ASSERT_EQ(g_a.procs[pid].state, PROC_NEW);
 
     sim_step(&g_a);
-    ASSERT_TRUE(g_a.procs[pid].state != PROC_NEW);   /* admitted on the very next tick */
+    ASSERT_TRUE(g_a.procs[pid].state != PROC_NEW);
 
     sim_run(&g_a);
     ASSERT_TRUE(sim_is_done(&g_a));
@@ -105,7 +103,6 @@ static void test_spawn_mid_run(void) {
     ASSERT_TRUE(g_a.procs[pid].start_tick >= 8);
     ASSERT_EQ(g_a.completed_processes, 4);
 
-    /* Spawning into a finished run revives it. */
     make_injected(&spec);
     pid = sim_spawn_process(&g_a, &spec);
     ASSERT_TRUE(!sim_is_done(&g_a));
@@ -134,7 +131,7 @@ static void test_reset_rerun_identical(void) {
     ASSERT_EQ(g_a.event_count, 0);
     ASSERT_EQ(g_a.num_processes, 4);
     ASSERT_EQ(g_a.procs[3].arrival_tick, 5);
-    ASSERT_EQ(g_a.procs[2].priority, 2);       /* base priority restored after MLFQ changes */
+    ASSERT_EQ(g_a.procs[2].priority, 2);
     for (int i = 0; i < g_a.total_frames; i++) ASSERT_TRUE(!g_a.frames[i].occupied);
 
     sim_run(&g_a);
@@ -151,32 +148,29 @@ static void test_remove_rules(void) {
     TEST_CASE("Remove: only NEW/TERMINATED, pids never reused");
     build_base(&g_a, SCHED_FCFS);
     sim_run_until(&g_a, 2);
-    /* P0 is mid-flight (running or blocked on its first fault), P1 has arrived. */
     ASSERT_TRUE(g_a.procs[0].state != PROC_NEW && g_a.procs[0].state != PROC_TERMINATED);
     ASSERT_TRUE(g_a.procs[1].state != PROC_NEW && g_a.procs[1].state != PROC_TERMINATED);
     ASSERT_EQ(sim_remove_process(&g_a, 0), SIM_ERR_STATE);
     ASSERT_EQ(sim_remove_process(&g_a, 1), SIM_ERR_STATE);
     ASSERT_EQ(sim_remove_process(&g_a, 99), SIM_ERR_NO_PID);
-    ASSERT_EQ(sim_remove_process(&g_a, 2), SIM_OK);          /* still NEW */
+    ASSERT_EQ(sim_remove_process(&g_a, 2), SIM_OK);
     ASSERT_EQ(g_a.procs[2].state, PROC_UNUSED);
-    ASSERT_EQ(sim_remove_process(&g_a, 2), SIM_ERR_NO_PID);  /* already a hole */
+    ASSERT_EQ(sim_remove_process(&g_a, 2), SIM_ERR_NO_PID);
 
     proc_spec_t spec;
     make_injected(&spec);
-    ASSERT_EQ(sim_spawn_process(&g_a, &spec), 3);            /* hole at 2 is not reused */
+    ASSERT_EQ(sim_spawn_process(&g_a, &spec), 3);
 
     sim_run(&g_a);
     ASSERT_TRUE(sim_is_done(&g_a));
     ASSERT_EQ(g_a.completed_processes, 3);
-    ASSERT_EQ(g_a.procs[2].state, PROC_UNUSED);              /* never ran */
+    ASSERT_EQ(g_a.procs[2].state, PROC_UNUSED);
     ASSERT_EQ(g_a.procs[2].start_tick, -1);
 
-    /* TERMINATED may be removed; done-ness stays consistent. */
     ASSERT_EQ(sim_remove_process(&g_a, 0), SIM_OK);
     ASSERT_EQ(g_a.completed_processes, 2);
     ASSERT_TRUE(sim_is_done(&g_a));
 
-    /* Holes survive reset. */
     sim_reset(&g_a);
     ASSERT_EQ(g_a.procs[0].state, PROC_UNUSED);
     ASSERT_EQ(g_a.procs[2].state, PROC_UNUSED);
@@ -203,7 +197,7 @@ static void test_update_rules(void) {
 
     sim_run_until(&g_a, 1);
     ASSERT_EQ(sim_get_process_spec(&g_a, 0, &spec), SIM_OK);
-    ASSERT_EQ(sim_update_process(&g_a, 0, &spec), SIM_ERR_STATE);  /* already running */
+    ASSERT_EQ(sim_update_process(&g_a, 0, &spec), SIM_ERR_STATE);
 
     proc_spec_init(&spec, "Bad");
     ASSERT_EQ(sim_update_process(&g_a, 2, &spec), SIM_ERR_INVALID);
@@ -212,7 +206,6 @@ static void test_update_rules(void) {
     TEST_PASS();
 }
 
-/* Observer that records into a buffer. */
 #define OBS_CAP 4096
 static sim_event_t g_obs[OBS_CAP];
 static uint32_t g_obs_n;
@@ -240,7 +233,6 @@ static void test_observer_order(void) {
         ASSERT_TRUE(memcmp(&g_obs[i], &g_a.event_log[i], sizeof(sim_event_t)) == 0);
     }
 
-    /* Observer survives reset; detaching stops notifications. */
     sim_reset(&g_a);
     g_obs_n = 0;
     sim_step(&g_a);
@@ -265,9 +257,8 @@ static void test_step_event(void) {
     }
     build_base(&g_b, SCHED_RR);
     sim_run(&g_b);
-    ASSERT_EQ(g_a.log_hash, g_b.log_hash);   /* stepping granularity does not change the run */
+    ASSERT_EQ(g_a.log_hash, g_b.log_hash);
 
-    /* A process arriving far in the future: one call jumps straight to it. */
     sim_init(&g_a, 1, 4, 3, SCHED_FCFS, REPL_FIFO, 1);
     proc_spec_t spec;
     proc_spec_init(&spec, "Far");
@@ -285,7 +276,6 @@ static void test_policy_switch(void) {
     ASSERT_EQ(sim_set_sched(&g_a, "nope", 0), SIM_ERR_NAME);
     ASSERT_EQ(sim_set_repl(&g_a, "nope"), SIM_ERR_NAME);
 
-    /* Six CPU-bound processes under MLFQ get spread over levels Q0..Q2. */
     sim_init(&g_a, 1, 8, 2, SCHED_MLFQ, REPL_LRU, 3);
     proc_spec_t spec;
     for (int i = 0; i < 6; i++) {
@@ -304,7 +294,7 @@ static void test_policy_switch(void) {
     ASSERT_EQ(g_a.ready_count[0], ready_before);
     ASSERT_EQ(g_a.ready_count[1] + g_a.ready_count[2], 0);
 
-    ASSERT_EQ(sim_set_sched(&g_a, "RoundRobin", 5), SIM_OK);   /* display name works too */
+    ASSERT_EQ(sim_set_sched(&g_a, "RoundRobin", 5), SIM_OK);
     ASSERT_EQ(g_a.default_quantum, 5);
     ASSERT_EQ(sim_set_repl(&g_a, "CLOCK"), SIM_OK);
     ASSERT_EQ(g_a.repl_policy, REPL_CLOCK);
@@ -320,7 +310,7 @@ static void test_set_frames(void) {
     sim_run_until(&g_a, 10);
     ASSERT_EQ(sim_set_frames(&g_a, 0), SIM_ERR_INVALID);
     ASSERT_EQ(sim_set_frames(&g_a, PRISM_MAX_FRAMES + 1), SIM_ERR_INVALID);
-    ASSERT_EQ(g_a.tick, 10);                     /* rejected call does not reset */
+    ASSERT_EQ(g_a.tick, 10);
 
     ASSERT_EQ(sim_set_frames(&g_a, 1), SIM_OK);
     ASSERT_EQ(g_a.tick, 0);
@@ -332,7 +322,6 @@ static void test_set_frames(void) {
     sim_run(&g_a);
     ASSERT_TRUE(g_a.total_page_faults < faults_small);
 
-    /* RAM shrink by fault injection is undone by reset. */
     sim_reset(&g_a);
     sim_inject_shrink_ram(&g_a, 2);
     ASSERT_EQ(g_a.total_frames, 2);
@@ -362,11 +351,11 @@ static void test_cores_latency(void) {
     tick_t lat3 = g_a.tick;
     sim_reset(&g_a);
     ASSERT_EQ(sim_set_disk_latency(&g_a, 9), SIM_OK);
-    ASSERT_EQ(g_a.tick, 0);                    /* no reset */
+    ASSERT_EQ(g_a.tick, 0);
     sim_run(&g_a);
     ASSERT_TRUE(g_a.tick > lat3);
     sim_reset(&g_a);
-    ASSERT_EQ(g_a.disk_latency, 9);            /* survives reset */
+    ASSERT_EQ(g_a.disk_latency, 9);
     TEST_PASS();
 }
 
@@ -383,13 +372,13 @@ static void test_scenario_roundtrip(void) {
     proc_spec_add_burst(&spec, BURST_CPU, 12);
     ASSERT_TRUE(workload_parse_pages(&spec, "random:0:9:12", 7, 3));
     sim_spawn_process(&g_a, &spec);
-    sim_remove_process(&g_a, 1);       /* hole: skipped on save */
+    sim_remove_process(&g_a, 1);
 
     layout_init(&g_la);
     ASSERT_EQ(layout_set(&g_la, "cpu", 640, 200), SIM_OK);
     ASSERT_EQ(layout_set(&g_la, "Late", 120.5f, 80), SIM_OK);
     ASSERT_EQ(layout_set(&g_la, "bad key", 1, 1), SIM_ERR_INVALID);
-    ASSERT_EQ(layout_set(&g_la, "cpu", 650, 210), SIM_OK);       /* update in place */
+    ASSERT_EQ(layout_set(&g_la, "cpu", 650, 210), SIM_OK);
     ASSERT_EQ(g_la.count, 2);
 
     ASSERT_EQ(scenario_save(&g_a, &g_la, path), SIM_OK);
@@ -397,7 +386,7 @@ static void test_scenario_roundtrip(void) {
     g_obs_n = 0;
     sim_set_observer(&g_b, record_obs, NULL);
     ASSERT_EQ(scenario_load(&g_b, &g_lb, path), SIM_OK);
-    ASSERT_TRUE(g_b.observer == record_obs);     /* kept across load */
+    ASSERT_TRUE(g_b.observer == record_obs);
     sim_set_observer(&g_b, NULL, NULL);
 
     ASSERT_EQ(g_b.num_processes, 3);
@@ -420,7 +409,6 @@ static void test_scenario_roundtrip(void) {
     ASSERT_TRUE(layout_get(&g_lb, "Late", &x, &y));
     ASSERT_TRUE(x == 120.5f);
 
-    /* Saved -> loaded -> saved again is byte-identical, and both runs match. */
     char path2[300];
     tmp_path(path2, sizeof(path2), "test_api_roundtrip2.wl");
     ASSERT_EQ(scenario_save(&g_b, &g_lb, path2), SIM_OK);

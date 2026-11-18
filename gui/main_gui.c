@@ -1,528 +1,387 @@
 #include "gui_state.h"
-#include "prism/workload.h"
 #include <inttypes.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/*
- * prism-gui [scenario-file] [--shot out.png] [--ticks N] [--select NAME|cpu|memory|...] [--builder]
- *           [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]
- *
- * --shot renders one frame after loading (and running N ticks) and writes a
- * PNG, then exits: used for README screenshots and to smoke-test the GUI in CI
- * under Xvfb. --compare opens the Compare view in that mode. --back N rewinds
- * N ticks after --ticks (exercises the replay path); --shot prints the final
- * tick and trace hash so scripts can check that rewinding is exact.
- */
+#define MAX_PRESETS        16
+#define MAX_STEPS_PER_FRAME 200
+#define STATUS_VISIBLE_S   8
+#define STATUS_FADE_S      6
 
-static gui_t *G;   /* single window; the observer gets it through user data */
+#define TOOLBAR_H   48.0f
+#define PALETTE_W   170.0f
+#define INSPECTOR_W 340.0f
+#define BOTTOM_H    250.0f
+#define STATUS_H    22.0f
+#define METRICS_W   330.0f
 
-void gui_status(gui_t *g, bool bad, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(g->status, sizeof(g->status), fmt, ap);
-    va_end(ap);
-    g->status_t = GetTime();
-    g->status_bad = bad;
-}
-
-void gui_reset_view_state(gui_t *g) {
-    g->ev_start = g->ev_len = 0;
-    g->ev_scroll = 0;
-    g->hist_len = 0;
-    g->tick_acc = 0;
-    explain_clear(g);
-    anim_clear(g);
-}
-
-/* Reset the run to tick 0 and go back to editing the scenario. */
-void gui_enter_edit(gui_t *g) {
-    sim_reset(g->sim);
-    g->mode = MODE_EDIT;
-    g->playing = false;
-    gui_reset_view_state(g);
-    gui_status(g, false, "Reset to tick 0 (edit mode)");
-}
-
-static void record_history(gui_t *g) {
-    const sim_t *s = g->sim;
-    uint8_t *row = g->hist[g->hist_len % GUI_HIST_TICKS];
-    for (int pid = 0; pid < PRISM_MAX_PROCESSES; pid++) {
-        row[pid] = pid < s->num_processes ? (uint8_t)s->procs[pid].state : PROC_UNUSED;
-    }
-    /* After sim_step the core is free again if its process blocked or ended
-     * this tick, so read who ran from the engine's own per-tick record. */
-    int8_t *cores = g->hist_core[g->hist_len % GUI_HIST_TICKS];
-    uint32_t gi = (s->gantt_count + PRISM_GANTT_HISTORY - 1) % PRISM_GANTT_HISTORY;
-    for (int c = 0; c < PRISM_MAX_CORES; c++) cores[c] = c < s->num_cores ? (int8_t)s->gantt_history[gi][c] : -1;
-    g->hist_len++;
-}
-
-void gui_step_tick(gui_t *g) {
-    if (sim_is_done(g->sim)) return;
-    sim_step(g->sim);
-    record_history(g);
-}
-
-bool gui_start_running(gui_t *g) {
-    char msg[160];
-    if (!gui_validate(g, msg, sizeof(msg))) { gui_status(g, true, "%s", msg); return false; }
-    if (sim_is_done(g->sim)) {
-        gui_status(g, false, "Run finished. Back (B) / click the Gantt chart to rewind, Reset (R) to edit.");
-        return false;
-    }
-    g->mode = MODE_RUN;
-    return true;
-}
-
-/*
- * Rewind by replaying: the run is deterministic, so reset + re-run to the
- * target tick reproduces it exactly (injected processes keep their arrival
- * tick). Live policy switches made during the run are not recorded, so the
- * replay uses the current policies; the status line says so.
- */
-void gui_seek(gui_t *g, tick_t target) {
-    g->playing = false;
-    if (target == 0) { gui_enter_edit(g); return; }
-    if (target == g->sim->tick) return;
-    if (!gui_start_running(g) && target > g->sim->tick) return;
-    bool back = target < g->sim->tick;
-    if (back) {
-        sim_reset(g->sim);
-        gui_reset_view_state(g);
-    }
-    g->mode = MODE_RUN;
-    g->replaying = true;
-    while (g->sim->tick < target && !sim_is_done(g->sim)) gui_step_tick(g);
-    g->replaying = false;
-    anim_clear(g);
-    if (back) gui_status(g, false, "Rewound to tick %" PRIu64 " (replayed from 0 with the current policies)", (uint64_t)g->sim->tick);
-}
-
-void gui_step_back(gui_t *g) {
-    if (g->sim->tick == 0) { gui_status(g, false, "Already at tick 0"); return; }
-    gui_seek(g, g->sim->tick - 1);
-}
-
-/* Same rule as sim_step_event, but one tick at a time so the timeline gets
- * every tick. */
-void gui_step_event(gui_t *g) {
-    if (!gui_start_running(g)) return;
-    g->playing = false;
-    uint64_t before = g->sim->notable_events;
-    for (int i = 0; i < PRISM_STEP_EVENT_MAX_TICKS && !sim_is_done(g->sim) && g->sim->notable_events == before; i++) {
-        gui_step_tick(g);
-    }
-}
-
-bool gui_validate(const gui_t *g, char *msg, size_t n) {
-    static const char *need[NODE_SYS_COUNT] = {
-        "Add a Ready Queue node", "Add a Scheduler node", "Add a CPU node", "Add a Memory node", "Add a Disk / I-O node"
-    };
-    for (int k = 0; k < NODE_SYS_COUNT; k++) {
-        if (!gui_has_node(g, k)) { snprintf(msg, n, "%s (drag it from the palette)", need[k]); return false; }
-    }
-    for (int pid = 0; pid < g->sim->num_processes; pid++) {
-        if (g->sim->procs[pid].state != PROC_UNUSED) return true;
-    }
-    snprintf(msg, n, "Add a process: drag Process from the palette or press A");
-    return false;
-}
-
-void gui_fit_view(gui_t *g) {
-    float minx = 1e9f, miny = 1e9f, maxx = -1e9f, maxy = -1e9f;
-    int n = 0;
-    for (int k = 0; k <= NODE_SYS_COUNT + PRISM_MAX_PROCESSES; k++) {
-        node_ref_t ref;
-        if (k < NODE_SYS_COUNT) {
-            if (!gui_has_node(g, k)) continue;
-            ref = (node_ref_t){k, 0};
-        } else {
-            int pid = k - NODE_SYS_COUNT;
-            if (pid >= g->sim->num_processes || g->sim->procs[pid].state == PROC_UNUSED) continue;
-            ref = (node_ref_t){NODE_PROC, pid};
-        }
-        Rectangle r = canvas_node_rect(g, ref);
-        if (r.x < minx) minx = r.x;
-        if (r.y < miny) miny = r.y;
-        if (r.x + r.width > maxx) maxx = r.x + r.width;
-        if (r.y + r.height > maxy) maxy = r.y + r.height;
-        n++;
-    }
-    if (n == 0) return;
-    if (minx > 0) minx = 0;   /* keep the process column in view */
-    if (miny > 0) miny = 0;
-    float zx = g->canvas.width / (maxx - minx + 80), zy = g->canvas.height / (maxy - miny + 80);
-    float z = zx < zy ? zx : zy;
-    if (z > 1.25f) z = 1.25f;
-    if (z < 0.4f) z = 0.4f;
-    g->cam.zoom = z;
-    g->cam.offset = (Vector2){g->canvas.x + g->canvas.width / 2, g->canvas.y + g->canvas.height / 2};
-    g->cam.target = (Vector2){(minx + maxx) / 2, (miny + maxy) / 2};
-}
-
-void gui_new_scenario(gui_t *g) {
-    sim_init(g->sim, 1, 8, 3, SCHED_RR, REPL_LRU, 42);
-    g->sim->default_quantum = 4;
-    sim_set_observer(g->sim, anim_observer, g);
-    layout_init(&g->layout);
-    canvas_default_layout(g);
-    g->mode = MODE_EDIT;
-    g->playing = false;
-    g->sel = (node_ref_t){NODE_NONE, 0};
-    gui_reset_view_state(g);
-    gui_fit_view(g);
-    gui_status(g, false, "New scenario: add processes from the palette");
-}
-
-void gui_load(gui_t *g, const char *path) {
-    int rc = scenario_load(g->sim, &g->layout, path);
-    if (rc != SIM_OK) { gui_status(g, true, "Cannot load %s: %s", path, sim_strerror(rc)); return; }
-    sim_set_observer(g->sim, anim_observer, g);
-    canvas_default_layout(g);
-    snprintf(g->path, sizeof(g->path), "%s", path);
-    g->preset_sel = 0;
-    for (int i = 0; i < g->npresets; i++) {
-        if (strcmp(GetFileName(g->presets[i]), GetFileName(path)) == 0) g->preset_sel = i + 1;
-    }
-    /* Never save over a bundled test case by accident: they are the
-     * reference inputs for Compare and the tests. */
-    bool preset = g->preset_sel > 0 && strstr(path, "workloads") != NULL;
-    if (preset) snprintf(g->path, sizeof(g->path), "my_%s", GetFileName(path));
-    compare_mark_dirty(g);
-    g->mode = MODE_EDIT;
-    g->playing = false;
-    g->sel = (node_ref_t){NODE_NONE, 0};
-    gui_reset_view_state(g);
-    gui_fit_view(g);
-    if (preset) gui_status(g, false, "Loaded test case %s (Save writes %s, the preset stays untouched)", GetFileNameWithoutExt(path), g->path);
-    else gui_status(g, false, "Loaded %s", path);
-}
-
-void gui_save(gui_t *g, const char *path) {
-    int rc = scenario_save(g->sim, &g->layout, path);
-    if (rc != SIM_OK) gui_status(g, true, "Cannot save %s: %s", path, sim_strerror(rc));
-    else gui_status(g, false, "Saved %s", path);
-}
-
-void gui_add_sys_node(gui_t *g, int kind, Vector2 world) {
-    if (g->mode != MODE_EDIT) { gui_status(g, true, "Reset (R) to change the system layout"); return; }
-    if (gui_has_node(g, kind)) { gui_status(g, true, "There is already a %s node", g_sys_titles[kind]); return; }
-    layout_set(&g->layout, g_sys_keys[kind], world.x - 100, world.y - 40);
-    g->sel = (node_ref_t){kind, 0};
-}
-
-void gui_delete_node(gui_t *g, node_ref_t n) {
-    if (n.kind == NODE_PROC) {
-        char name[PRISM_MAX_NAME_LEN];
-        snprintf(name, sizeof(name), "%s", g->sim->procs[n.pid].name);
-        int rc = sim_remove_process(g->sim, n.pid);
-        if (rc != SIM_OK) { gui_status(g, true, "Cannot delete %s: %s", name, sim_strerror(rc)); return; }
-        layout_remove(&g->layout, name);
-        gui_status(g, false, "Deleted %s", name);
-    } else if (n.kind >= 0 && n.kind < NODE_SYS_COUNT) {
-        if (g->mode != MODE_EDIT) { gui_status(g, true, "Reset (R) to change the system layout"); return; }
-        layout_remove(&g->layout, g_sys_keys[n.kind]);
-    }
-    g->sel = (node_ref_t){NODE_NONE, 0};
-}
-
-void gui_duplicate_process(gui_t *g, int pid) {
-    proc_spec_t spec;
-    if (sim_get_process_spec(g->sim, pid, &spec) != SIM_OK) return;
-    char base[25];
-    memcpy(base, spec.name, sizeof(base) - 1);   /* leave room for "_NNN" */
-    base[sizeof(base) - 1] = '\0';
-    for (int i = 2; i < 1000; i++) {
-        snprintf(spec.name, sizeof(spec.name), "%s_%d", base, i % 1000);
-        bool taken = false;
-        for (int k = 0; k < g->sim->num_processes; k++) {
-            if (g->sim->procs[k].state != PROC_UNUSED && strcmp(g->sim->procs[k].name, spec.name) == 0) taken = true;
-        }
-        if (!taken) break;
-    }
-    int np = sim_spawn_process(g->sim, &spec);
-    if (np < 0) { gui_status(g, true, "Cannot duplicate: %s", sim_strerror(np)); return; }
-    canvas_place_process(g, np);
-    g->sel = (node_ref_t){NODE_PROC, np};
-    gui_status(g, false, g->mode == MODE_RUN ? "Duplicated as %s (arrives now)" : "Duplicated as %s", spec.name);
-}
-
-void gui_random_processes(gui_t *g, int n) {
-    int added = 0;
-    for (int i = 0; i < n; i++) {
-        builder_open_new(g, g->mode == MODE_RUN);
-        builder_template(g, 4);
-        if (g->mode == MODE_EDIT) g->b.arrival = (int)(g->b.rng % 12);
-        /* Reuse the builder's validation path without showing the dialog. */
-        proc_spec_t spec;
-        proc_spec_init(&spec, g->b.name);
-        spec.arrival = (tick_t)g->b.arrival;
-        spec.priority = (uint16_t)g->b.priority;
-        for (int k = 0; k < g->b.nb; k++) proc_spec_add_burst(&spec, (burst_kind_t)g->b.kind[k], (uint16_t)g->b.dur[k]);
-        workload_parse_pages(&spec, g->b.pages, g->sim->seed, g->sim->num_processes);
-        g->b.open = false;
-        int pid = sim_spawn_process(g->sim, &spec);
-        if (pid < 0) break;
-        canvas_place_process(g, pid);
-        added++;
-    }
-    gui_status(g, added < n, added < n ? "Added %d processes (table full)" : "Added %d random processes", added);
-}
+typedef struct {
+    const char *scenario;
+    const char *shot;
+    const char *select;
+    const char *tab;
+    const char *compare_mode;
+    int         ticks;
+    int         back;
+    bool        open_builder;
+} gui_args_t;
 
 static void load_presets(gui_t *g) {
-    g->npresets = 0;
+    static char names[MAX_PRESETS][64];
+
+    g->num_presets = 0;
     g->preset_items[0] = "New (empty)";
     if (!DirectoryExists("workloads")) return;
+
     FilePathList files = LoadDirectoryFilesEx("workloads", ".txt;.wl", false);
-    for (unsigned i = 0; i < files.count && g->npresets < 16; i++) {
-        snprintf(g->presets[g->npresets], sizeof(g->presets[0]), "%s", files.paths[i]);
-        g->preset_items[g->npresets + 1] = GetFileNameWithoutExt(g->presets[g->npresets]);
-        /* GetFileNameWithoutExt returns a static buffer: copy it. */
-        static char names[16][64];
-        snprintf(names[g->npresets], sizeof(names[0]), "%s", g->preset_items[g->npresets + 1]);
-        g->preset_items[g->npresets + 1] = names[g->npresets];
-        g->npresets++;
+    for (unsigned i = 0; i < files.count && g->num_presets < MAX_PRESETS; i++) {
+        int n = g->num_presets;
+        snprintf(g->presets[n], sizeof(g->presets[0]), "%s", files.paths[i]);
+        snprintf(names[n], sizeof(names[0]), "%s", GetFileNameWithoutExt(g->presets[n]));
+        g->preset_items[n + 1] = names[n];
+        g->num_presets++;
     }
     UnloadDirectoryFiles(files);
 }
 
-static void handle_keys(gui_t *g, bool *space_used) {
-    if (ui_text_focused() || g->b.open) return;
-    bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER);
-    if (ctrl && IsKeyPressed(KEY_S)) { gui_save(g, g->path); return; }
-    if (ctrl && IsKeyPressed(KEY_O)) { gui_load(g, g->path); return; }
-    if (ctrl) return;
-    if (IsKeyPressed(KEY_TAB)) {
-        g->view = g->view == VIEW_SIM ? VIEW_COMPARE : VIEW_SIM;
-        g->playing = false;
-        if (g->view == VIEW_COMPARE) compare_mark_dirty(g);
-        return;
+static bool ctrl_down(void) {
+    return IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER);
+}
+
+static void toggle_view(gui_t *g) {
+    g->view = g->view == VIEW_SIM ? VIEW_COMPARE : VIEW_SIM;
+    g->playing = false;
+    if (g->view == VIEW_COMPARE) compare_mark_dirty(g);
+}
+
+static void handle_space(gui_t *g, bool *space_used) {
+    bool space_for_panning = IsKeyDown(KEY_SPACE) && (g->panning || IsMouseButtonDown(MOUSE_BUTTON_LEFT));
+    if (space_for_panning) *space_used = true;
+    if (!IsKeyReleased(KEY_SPACE)) return;
+
+    if (!*space_used) {
+        if (g->playing) g->playing = false;
+        else if (gui_start_running(g)) g->playing = true;
     }
-    if (g->view != VIEW_SIM) return;
-    /* Space toggles on release, unless it was held to pan. */
-    if (IsKeyDown(KEY_SPACE) && (g->panning || IsMouseButtonDown(MOUSE_BUTTON_LEFT))) *space_used = true;
-    if (IsKeyReleased(KEY_SPACE)) {
-        if (!*space_used) {
-            if (g->playing) g->playing = false;
-            else if (gui_start_running(g)) g->playing = true;
-        }
-        *space_used = false;
-    }
+    *space_used = false;
+}
+
+static void step_one_tick(gui_t *g) {
+    if (!gui_start_running(g)) return;
+    g->playing = false;
+    gui_step_tick(g);
+}
+
+static void handle_simulation_keys(gui_t *g, bool *space_used) {
+    handle_space(g, space_used);
+
     if (IsKeyPressed(KEY_N)) gui_step_event(g);
-    if (IsKeyPressed(KEY_T) || IsKeyPressed(KEY_RIGHT)) {
-        if (gui_start_running(g)) { g->playing = false; gui_step_tick(g); }
-    }
+    if (IsKeyPressed(KEY_T) || IsKeyPressed(KEY_RIGHT)) step_one_tick(g);
     if (IsKeyPressed(KEY_B) || IsKeyPressed(KEY_LEFT)) gui_step_back(g);
     if (IsKeyPressed(KEY_R)) gui_enter_edit(g);
     if (IsKeyPressed(KEY_A)) builder_open_new(g, g->mode == MODE_RUN);
     if (IsKeyPressed(KEY_F)) gui_fit_view(g);
     if (IsKeyPressed(KEY_G)) g->snap = !g->snap;
-    if ((IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE)) && g->sel.kind != NODE_NONE) gui_delete_node(g, g->sel);
-    if (IsKeyPressed(KEY_ESCAPE)) { g->sel = (node_ref_t){NODE_NONE, 0}; g->ctx_open = false; }
+
+    bool delete_pressed = IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE);
+    if (delete_pressed && g->selected.kind != NODE_NONE) gui_delete_node(g, g->selected);
+
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        g->selected = (node_ref_t){NODE_NONE, 0};
+        g->menu_open = false;
+    }
+}
+
+static void handle_keys(gui_t *g, bool *space_used) {
+    if (ui_text_focused() || g->builder.open) return;
+
+    if (ctrl_down()) {
+        if (IsKeyPressed(KEY_S)) gui_save(g, g->path);
+        else if (IsKeyPressed(KEY_O)) gui_load(g, g->path);
+        return;
+    }
+    if (IsKeyPressed(KEY_TAB)) {
+        toggle_view(g);
+        return;
+    }
+    if (g->view == VIEW_SIM) handle_simulation_keys(g, space_used);
+}
+
+static void update_anim_duration(gui_t *g) {
+    g->anim_duration = 0.9f / g->speed;
+    if (g->anim_duration > 0.45f) g->anim_duration = 0.45f;
+    if (g->speed > 30) g->anim_duration = 0;
 }
 
 static void advance(gui_t *g, float dt) {
-    g->anim_dur = 0.9f / g->speed;
-    if (g->anim_dur > 0.45f) g->anim_dur = 0.45f;
-    if (g->speed > 30) g->anim_dur = 0;   /* too fast to follow: just update the views */
+    update_anim_duration(g);
     if (!g->playing) return;
-    g->tick_acc += dt * g->speed;
-    int steps = 0;
-    while (g->tick_acc >= 1.0 && steps < 200) {
+
+    g->tick_accumulator += dt * g->speed;
+    for (int steps = 0; g->tick_accumulator >= 1.0 && steps < MAX_STEPS_PER_FRAME; steps++) {
         gui_step_tick(g);
-        g->tick_acc -= 1.0;
-        steps++;
+        g->tick_accumulator -= 1.0;
         if (sim_is_done(g->sim)) {
             g->playing = false;
-            g->tick_acc = 0;
-            gui_status(g, false, "Finished at tick %" PRIu64 ". See the Results table, rewind with B, or open Compare (Tab).", (uint64_t)g->sim->tick);
-            break;
+            g->tick_accumulator = 0;
+            gui_status(g, false, "Finished at tick %" PRIu64 ". See the Results table, rewind with B, or open Compare (Tab).",
+                       (uint64_t)g->sim->tick);
+            return;
         }
     }
 }
 
 static void draw_status(gui_t *g, Rectangle r) {
     DrawRectangleRec(r, UI_PANEL_HI);
-    double age = GetTime() - g->status_t;
-    if (g->status[0] && age < 8) {
-        Color c = g->status_bad ? UI_BAD : UI_TEXT;
-        ui_text(r.x + 10, r.y + 4, 14, ColorAlpha(c, age > 6 ? (float)(8 - age) / 2 : 1), "%s", g->status);
+
+    double age = GetTime() - g->status_time;
+    if (g->status[0] && age < STATUS_VISIBLE_S) {
+        float alpha = age > STATUS_FADE_S ? (float)(STATUS_VISIBLE_S - age) / 2 : 1;
+        ui_text(r.x + 10, r.y + 4, 14, ColorAlpha(g->status_bad ? UI_BAD : UI_TEXT, alpha), "%s", g->status);
     }
-    const char *right = g->view == VIEW_COMPARE ? "compare view  |  Tab: back to Simulate"
-                      : TextFormat("%s  |  zoom %.0f%%  |  snap %s (G)", g->mode == MODE_EDIT ? "edit" : "run",
-                                   g->cam.zoom * 100, g->snap ? "on" : "off");
-    ui_text(r.x + r.width - ui_text_width(right, 13) - 10, r.y + 5, 13, UI_TEXT_DIM, "%s", right);
+
+    const char *summary = g->view == VIEW_COMPARE
+        ? "compare view  |  Tab: back to Simulate"
+        : TextFormat("%s  |  zoom %.0f%%  |  snap %s (G)", g->mode == MODE_EDIT ? "edit" : "run",
+                     g->camera.zoom * 100, g->snap ? "on" : "off");
+    ui_text(r.x + r.width - ui_text_width(summary, 13) - 10, r.y + 5, 13, UI_TEXT_DIM, "%s", summary);
+}
+
+typedef struct {
+    Rectangle toolbar, status, palette, inspector;
+    Rectangle bottom_left, bottom_mid, metrics;
+    Rectangle full_body;
+} screen_layout_t;
+
+static screen_layout_t compute_layout(gui_t *g) {
+    float w = (float)GetScreenWidth(), h = (float)GetScreenHeight();
+    float middle_h = h - TOOLBAR_H - BOTTOM_H - STATUS_H;
+    float bottom_y = h - BOTTOM_H - STATUS_H;
+    float bottom_left_w = (w - METRICS_W) * 0.46f;
+
+    screen_layout_t L;
+    L.toolbar = (Rectangle){0, 0, w, TOOLBAR_H};
+    L.status = (Rectangle){0, h - STATUS_H, w, STATUS_H};
+    L.palette = (Rectangle){0, TOOLBAR_H, PALETTE_W, middle_h};
+    L.inspector = (Rectangle){w - INSPECTOR_W, TOOLBAR_H, INSPECTOR_W, middle_h};
+    L.bottom_left = (Rectangle){0, bottom_y, bottom_left_w, BOTTOM_H};
+    L.bottom_mid = (Rectangle){bottom_left_w, bottom_y, w - METRICS_W - bottom_left_w, BOTTOM_H};
+    L.metrics = (Rectangle){w - METRICS_W, bottom_y, METRICS_W, BOTTOM_H};
+    L.full_body = (Rectangle){0, TOOLBAR_H, w, h - TOOLBAR_H - STATUS_H};
+    g->canvas = (Rectangle){PALETTE_W, TOOLBAR_H, w - PALETTE_W - INSPECTOR_W, middle_h};
+    return L;
+}
+
+static void draw_simulate_view(gui_t *g, const screen_layout_t *L) {
+    canvas_draw(g);
+    explain_draw_latest(g, g->canvas);
+    panel_palette(g, L->palette);
+    panel_inspector(g, L->inspector);
+    panel_bottom_left(g, L->bottom_left);
+    panel_bottom_mid(g, L->bottom_mid);
+    panel_metrics(g, L->metrics);
 }
 
 static void frame(gui_t *g, float dt, bool *space_used) {
-    int sw = GetScreenWidth(), sh = GetScreenHeight();
-    const float top = 48, left = 170, right = 340, bottom = 250, status = 22;
-    Rectangle toolbar = {0, 0, (float)sw, top};
-    Rectangle statusbar = {0, (float)sh - status, (float)sw, status};
-    Rectangle palette = {0, top, left, sh - top - bottom - status};
-    Rectangle inspector = {sw - right, top, right, sh - top - bottom - status};
-    g->canvas = (Rectangle){left, top, sw - left - right, sh - top - bottom - status};
-    float by = sh - bottom - status;
-    float lw = (sw - 330) * 0.46f;
-    Rectangle bl = {0, by, lw, bottom};
-    Rectangle bm = {lw, by, sw - 330 - lw, bottom};
-    Rectangle metrics = {sw - 330.0f, by, 330, bottom};
+    screen_layout_t L = compute_layout(g);
+    bool simulating = g->view == VIEW_SIM;
 
-    if (g->view == VIEW_SIM) advance(g, dt);
+    if (simulating) advance(g, dt);
     anim_update(g);
 
     BeginDrawing();
     ClearBackground(UI_BG);
     ui_begin();
-    if (g->view == VIEW_SIM) {
-        canvas_draw(g);
-        explain_draw_latest(g, g->canvas);
-        panel_palette(g, palette);
-        panel_inspector(g, inspector);
-        panel_bottom_left(g, bl);
-        panel_bottom_mid(g, bm);
-        panel_metrics(g, metrics);
-    } else {
-        compare_view(g, (Rectangle){0, top, (float)sw, sh - top - status});
-    }
-    panel_toolbar(g, toolbar);
-    draw_status(g, statusbar);
-    if (g->view == VIEW_SIM) {
+
+    if (simulating) draw_simulate_view(g, &L);
+    else compare_view(g, L.full_body);
+    panel_toolbar(g, L.toolbar);
+    draw_status(g, L.status);
+
+    if (simulating) {
         panel_context_menu(g);
         builder_draw(g);
         canvas_update(g);
     }
     handle_keys(g, space_used);
+
     ui_end();
     EndDrawing();
 }
 
-static int tab_from_name(const char *t, int *left) {
-    static const char *names[] = {"explain", "events", "gantt", "states", "table"};
-    for (int i = 0; i < 5; i++) {
-        if (strcmp(t, names[i]) == 0) { *left = i < 2; return i < 2 ? i : i - 2; }
-    }
-    *left = -1;
-    return 0;
+static void print_usage(void) {
+    printf("usage: prism-gui [scenario] [--shot out.png] [--ticks N] [--select NODE] [--builder]\n"
+           "                 [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]\n");
 }
 
-int main(int argc, char **argv) {
-    const char *file = NULL, *shot = NULL, *select = NULL, *tab = NULL, *compare_mode = NULL;
-    int ticks = 0, back = 0;
-    bool open_builder = false;
+static bool parse_args(int argc, char **argv, gui_args_t *a) {
+    memset(a, 0, sizeof(*a));
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shot = argv[++i];
-        else if (strcmp(argv[i], "--ticks") == 0 && i + 1 < argc) ticks = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--select") == 0 && i + 1 < argc) select = argv[++i];
-        else if (strcmp(argv[i], "--builder") == 0) open_builder = true;
-        else if (strcmp(argv[i], "--tab") == 0 && i + 1 < argc) tab = argv[++i];
-        else if (strcmp(argv[i], "--back") == 0 && i + 1 < argc) back = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--compare") == 0 && i + 1 < argc) compare_mode = argv[++i];
-        else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("usage: prism-gui [scenario] [--shot out.png] [--ticks N] [--select NODE] [--builder]\n"
-                   "                 [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]\n");
-            return 0;
+        const char *arg = argv[i];
+        bool has_value = i + 1 < argc;
+
+        if (strcmp(arg, "--shot") == 0 && has_value) a->shot = argv[++i];
+        else if (strcmp(arg, "--ticks") == 0 && has_value) a->ticks = atoi(argv[++i]);
+        else if (strcmp(arg, "--select") == 0 && has_value) a->select = argv[++i];
+        else if (strcmp(arg, "--builder") == 0) a->open_builder = true;
+        else if (strcmp(arg, "--tab") == 0 && has_value) a->tab = argv[++i];
+        else if (strcmp(arg, "--back") == 0 && has_value) a->back = atoi(argv[++i]);
+        else if (strcmp(arg, "--compare") == 0 && has_value) a->compare_mode = argv[++i];
+        else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+            print_usage();
+            return false;
+        } else {
+            a->scenario = arg;
         }
-        else file = argv[i];
+    }
+    return true;
+}
+
+static gui_t *create_gui(void) {
+    gui_t *g = calloc(1, sizeof(gui_t));
+    if (!g) return NULL;
+    g->sim = malloc(sizeof(sim_t));
+    if (!g->sim) {
+        free(g);
+        return NULL;
     }
 
-    G = calloc(1, sizeof(gui_t));
-    if (!G) { fprintf(stderr, "prism-gui: out of memory\n"); return 1; }
-    G->sim = malloc(sizeof(sim_t));
-    if (!G->sim) { fprintf(stderr, "prism-gui: out of memory\n"); free(G); return 1; }
-    gui_t *g = G;
     g->speed = 4;
     g->snap = true;
-    g->hide_hits = true;
-    g->ev_filter_pid = -1;
+    g->hide_page_hits = true;
+    g->events_filter_pid = -1;
     g->palette_drag = -1;
-    g->drag.kind = g->sel.kind = g->hover.kind = NODE_NONE;
-    g->cam.zoom = 1;
+    g->dragged.kind = g->selected.kind = g->hovered.kind = NODE_NONE;
+    g->camera.zoom = 1;
     snprintf(g->path, sizeof(g->path), "scenario.txt");
+    return g;
+}
 
-    SetTraceLogLevel(LOG_WARNING);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | (shot ? 0 : FLAG_VSYNC_HINT));
-    InitWindow(1440, 880, "PRISM - process & memory simulator");
-    SetWindowMinSize(1200, 720);
-    SetExitKey(KEY_NULL);   /* Esc closes dialogs, not the app */
-    SetTargetFPS(60);
-    ui_init();
-    panels_init();
-    load_presets(g);
-    compare_init(g);
-
-    /* Lay out once so fit_view knows the canvas size. */
-    g->canvas = (Rectangle){170, 48, GetScreenWidth() - 510.0f, GetScreenHeight() - 300.0f};
-    /* Start from a valid empty scenario so a file that fails to load leaves
-     * a usable (not uninitialised) simulation behind. */
-    gui_new_scenario(g);
-    if (file) gui_load(g, file);
-    else if (FileExists("workloads/mixed_demo.txt")) gui_load(g, "workloads/mixed_demo.txt");
-    if (!file) snprintf(g->path, sizeof(g->path), "scenario.txt");
-
-    if (ticks > 0) {
-        g->mode = MODE_RUN;
-        /* With --shot the last tick is stepped later, so its tokens are mid-flight. */
-        int pre = (shot && back == 0) ? ticks - 1 : ticks;
-        for (int i = 0; i < pre; i++) gui_step_tick(g);
-        for (int i = 0; i < back; i++) gui_step_back(g);
-    }
-    if (select) {
-        for (int k = 0; k < NODE_SYS_COUNT; k++) if (strcmp(select, g_sys_keys[k]) == 0) g->sel = (node_ref_t){k, 0};
-        for (int pid = 0; pid < g->sim->num_processes; pid++) {
-            if (strcmp(select, g->sim->procs[pid].name) == 0) g->sel = (node_ref_t){NODE_PROC, pid};
-        }
-    }
-    if (open_builder) builder_open_new(g, g->mode == MODE_RUN);
-    if (tab) {
-        int left, t = tab_from_name(tab, &left);
-        if (left == 1) g->ltab = t;
-        else if (left == 0) g->mtab = t;
-    }
-    if (compare_mode) compare_setup_args(g, compare_mode);
-
-    bool space_used = false;
-    if (shot) {
-        frame(g, 0, &space_used);
-        if (ticks > 0 && back == 0) {
-            /* Step the last tick after the clock is running so its tokens are mid-flight. */
-            anim_clear(g);
-            g->anim_dur = 0.45f;
-            g->anim_now = GetTime();
-            gui_step_tick(g);
-            WaitTime(0.2);
-        }
-        for (int i = 0; i < 2; i++) frame(g, 0, &space_used);
-        Image img = LoadImageFromScreen();
-        bool ok = ExportImage(img, shot);
-        UnloadImage(img);
-        if (!ok) fprintf(stderr, "prism-gui: cannot write %s\n", shot);
-        printf("tick %" PRIu64 " hash %016" PRIx64 " events %u narration %u\n", (uint64_t)g->sim->tick, g->sim->log_hash,
-               g->ev_len, g->narr_len);
-        compare_free(g);
-        ui_shutdown();
-        CloseWindow();
-        free(g->sim);
-        free(g);
-        return ok ? 0 : 1;
-    }
-
-    while (!WindowShouldClose()) {
-        if (IsFileDropped()) {
-            FilePathList dropped = LoadDroppedFiles();
-            if (dropped.count > 0) gui_load(g, dropped.paths[0]);
-            UnloadDroppedFiles(dropped);
-        }
-        frame(g, GetFrameTime(), &space_used);
-    }
-
+static void destroy_gui(gui_t *g) {
     compare_free(g);
     ui_shutdown();
     CloseWindow();
     free(g->sim);
     free(g);
-    return 0;
+}
+
+static void open_window(bool screenshot_only) {
+    SetTraceLogLevel(LOG_WARNING);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | (screenshot_only ? 0 : FLAG_VSYNC_HINT));
+    InitWindow(1440, 880, "PRISM - process & memory simulator");
+    SetWindowMinSize(1200, 720);
+    SetExitKey(KEY_NULL);
+    SetTargetFPS(60);
+}
+
+static void load_initial_scenario(gui_t *g, const char *scenario) {
+    g->canvas = (Rectangle){PALETTE_W, TOOLBAR_H, GetScreenWidth() - 510.0f, GetScreenHeight() - 300.0f};
+    gui_new_scenario(g);
+
+    if (scenario) {
+        gui_load(g, scenario);
+        return;
+    }
+    if (FileExists("workloads/mixed_demo.txt")) gui_load(g, "workloads/mixed_demo.txt");
+    snprintf(g->path, sizeof(g->path), "scenario.txt");
+}
+
+static void select_node_by_name(gui_t *g, const char *name) {
+    for (int kind = 0; kind < NODE_SYS_COUNT; kind++) {
+        if (strcmp(name, g_sys_keys[kind]) == 0) g->selected = (node_ref_t){kind, 0};
+    }
+    for (int pid = 0; pid < g->sim->num_processes; pid++) {
+        if (strcmp(name, g->sim->procs[pid].name) == 0) g->selected = (node_ref_t){NODE_PROC, pid};
+    }
+}
+
+static void select_tab_by_name(gui_t *g, const char *name) {
+    static const char *left_tabs[] = {"explain", "events"};
+    static const char *mid_tabs[] = {"gantt", "states", "table"};
+
+    for (int i = 0; i < 2; i++) {
+        if (strcmp(name, left_tabs[i]) == 0) g->left_tab = i;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (strcmp(name, mid_tabs[i]) == 0) g->mid_tab = i;
+    }
+}
+
+static void apply_startup_args(gui_t *g, const gui_args_t *a) {
+    if (a->ticks > 0) {
+        g->mode = MODE_RUN;
+        bool leave_last_tick_for_animation = a->shot && a->back == 0;
+        int ticks = leave_last_tick_for_animation ? a->ticks - 1 : a->ticks;
+        for (int i = 0; i < ticks; i++) gui_step_tick(g);
+        for (int i = 0; i < a->back; i++) gui_step_back(g);
+    }
+    if (a->select) select_node_by_name(g, a->select);
+    if (a->open_builder) builder_open_new(g, g->mode == MODE_RUN);
+    if (a->tab) select_tab_by_name(g, a->tab);
+    if (a->compare_mode) compare_setup_args(g, a->compare_mode);
+}
+
+static bool take_screenshot(gui_t *g, const gui_args_t *a) {
+    bool space_used = false;
+    frame(g, 0, &space_used);
+
+    if (a->ticks > 0 && a->back == 0) {
+        anim_clear(g);
+        g->anim_duration = 0.45f;
+        g->anim_now = GetTime();
+        gui_step_tick(g);
+        WaitTime(0.2);
+    }
+    for (int i = 0; i < 2; i++) frame(g, 0, &space_used);
+
+    Image image = LoadImageFromScreen();
+    bool saved = ExportImage(image, a->shot);
+    UnloadImage(image);
+    if (!saved) fprintf(stderr, "prism-gui: cannot write %s\n", a->shot);
+
+    printf("tick %" PRIu64 " hash %016" PRIx64 " events %u narration %u\n", (uint64_t)g->sim->tick, g->sim->log_hash,
+           g->events_len, g->narration_len);
+    return saved;
+}
+
+static void load_dropped_file(gui_t *g) {
+    if (!IsFileDropped()) return;
+    FilePathList dropped = LoadDroppedFiles();
+    if (dropped.count > 0) gui_load(g, dropped.paths[0]);
+    UnloadDroppedFiles(dropped);
+}
+
+static void run_interactive(gui_t *g) {
+    bool space_used = false;
+    while (!WindowShouldClose()) {
+        load_dropped_file(g);
+        frame(g, GetFrameTime(), &space_used);
+    }
+}
+
+int main(int argc, char **argv) {
+    gui_args_t args;
+    if (!parse_args(argc, argv, &args)) return 0;
+
+    gui_t *g = create_gui();
+    if (!g) {
+        fprintf(stderr, "prism-gui: out of memory\n");
+        return 1;
+    }
+
+    open_window(args.shot != NULL);
+    ui_init();
+    panels_init();
+    load_presets(g);
+    compare_init(g);
+    load_initial_scenario(g, args.scenario);
+    apply_startup_args(g, &args);
+
+    int exit_code = 0;
+    if (args.shot) exit_code = take_screenshot(g, &args) ? 0 : 1;
+    else run_interactive(g);
+
+    destroy_gui(g);
+    return exit_code;
 }

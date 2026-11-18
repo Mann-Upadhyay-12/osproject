@@ -17,10 +17,13 @@ static int layout_find(const layout_t *L, const char *key) {
     return -1;
 }
 
+static bool is_valid_layout_key(const char *key) {
+    return key && *key && strlen(key) < PRISM_MAX_NAME_LEN && !strpbrk(key, " \t\r\n");
+}
+
 int layout_set(layout_t *L, const char *key, float x, float y) {
-    if (!key || !*key || strlen(key) >= PRISM_MAX_NAME_LEN || strpbrk(key, " \t\r\n")) {
-        return SIM_ERR_INVALID;
-    }
+    if (!is_valid_layout_key(key)) return SIM_ERR_INVALID;
+
     int i = layout_find(L, key);
     if (i < 0) {
         if (L->count >= PRISM_LAYOUT_MAX_NODES) return SIM_ERR_FULL;
@@ -63,13 +66,12 @@ static void write_bursts(FILE *fp, const pcb_t *p) {
     }
 }
 
-int scenario_save(const sim_t *s, const layout_t *L, const char *path) {
-    FILE *fp = fopen(path, "w");
-    if (!fp) return SIM_ERR_IO;
+static void write_settings(FILE *fp, const sim_t *s) {
+    int frames = s->configured_frames > 0 ? s->configured_frames : s->total_frames;
 
     fprintf(fp, "# PRISM scenario (load with prism-cli --workload, prism-tui, or prism-gui)\n");
     fprintf(fp, "cores %d\n", s->num_cores);
-    fprintf(fp, "frames %d\n", s->configured_frames > 0 ? s->configured_frames : s->total_frames);
+    fprintf(fp, "frames %d\n", frames);
     fprintf(fp, "disk_latency %d\n", s->disk_latency);
     fprintf(fp, "sched %s\n", sched_get_ops(s->sched_policy)->key);
     fprintf(fp, "repl %s\n", repl_get_ops(s->repl_policy)->key);
@@ -78,30 +80,48 @@ int scenario_save(const sim_t *s, const layout_t *L, const char *path) {
     for (int r = 0; r < s->num_resources; r++) {
         fprintf(fp, "resource %s %d\n", s->resources[r].name, s->resources[r].total_instances);
     }
+}
+
+static void write_page_refs(FILE *fp, const pcb_t *p) {
+    for (int r = 0; r < p->num_page_refs; r++) {
+        fprintf(fp, r ? ",%u" : "%u", p->page_refs[r]);
+    }
+}
+
+static void write_process(FILE *fp, const pcb_t *p) {
+    fprintf(fp, "proc %s arrival=%" PRIu64, p->name, p->arrival_tick);
+    if (p->base_priority) fprintf(fp, " priority=%u", p->base_priority);
+
+    fputs(" bursts=", fp);
+    write_bursts(fp, p);
+
+    if (p->num_page_refs) {
+        fputs(" pages=", fp);
+        write_page_refs(fp, p);
+    }
+    fputc('\n', fp);
+}
+
+static void write_layout(FILE *fp, const layout_t *L) {
+    if (!L || L->count == 0) return;
+
+    fputc('\n', fp);
+    for (int i = 0; i < L->count; i++) {
+        fprintf(fp, "layout node=%s x=%g y=%g\n", L->nodes[i].key, L->nodes[i].x, L->nodes[i].y);
+    }
+}
+
+int scenario_save(const sim_t *s, const layout_t *L, const char *path) {
+    FILE *fp = fopen(path, "w");
+    if (!fp) return SIM_ERR_IO;
+
+    write_settings(fp, s);
     fputc('\n', fp);
 
     for (int i = 0; i < s->num_processes; i++) {
-        const pcb_t *p = &s->procs[i];
-        if (p->state == PROC_UNUSED) continue;
-        fprintf(fp, "proc %s arrival=%" PRIu64, p->name, p->arrival_tick);
-        if (p->base_priority) fprintf(fp, " priority=%u", p->base_priority);
-        fputs(" bursts=", fp);
-        write_bursts(fp, p);
-        if (p->num_page_refs) {
-            fputs(" pages=", fp);
-            for (int r = 0; r < p->num_page_refs; r++) {
-                fprintf(fp, r ? ",%u" : "%u", p->page_refs[r]);
-            }
-        }
-        fputc('\n', fp);
+        if (s->procs[i].state != PROC_UNUSED) write_process(fp, &s->procs[i]);
     }
-
-    if (L && L->count) {
-        fputc('\n', fp);
-        for (int i = 0; i < L->count; i++) {
-            fprintf(fp, "layout node=%s x=%g y=%g\n", L->nodes[i].key, L->nodes[i].x, L->nodes[i].y);
-        }
-    }
+    write_layout(fp, L);
 
     bool ok = !ferror(fp);
     if (fclose(fp) != 0) ok = false;
@@ -114,9 +134,11 @@ static void load_layout(FILE *fp, layout_t *L, const char *path) {
     while (fgets(line, sizeof(line), fp)) {
         lineno++;
         if (strncmp(line, "layout", 6) != 0) continue;
+
         char key[PRISM_MAX_NAME_LEN] = "";
         float x = 0, y = 0;
-        if (sscanf(line + 6, " node=%31s x=%f y=%f", key, &x, &y) != 3 || layout_set(L, key, x, y) != SIM_OK) {
+        bool parsed = sscanf(line + 6, " node=%31s x=%f y=%f", key, &x, &y) == 3;
+        if (!parsed || layout_set(L, key, x, y) != SIM_OK) {
             fprintf(stderr, "%s:%d: bad layout line (expected: layout node=KEY x=N y=N)\n", path, lineno);
         }
     }
@@ -126,16 +148,15 @@ int scenario_load(sim_t *s, layout_t *L, const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) return SIM_ERR_IO;
 
-    sim_observer_fn fn = s->observer;
-    void *user = s->observer_user;
+    sim_observer_fn observer = s->observer;
+    void *observer_user = s->observer_user;
     sim_init(s, 1, 4, 3, SCHED_RR, REPL_LRU, 42);
     if (!workload_load_file(path, s, NULL)) {
         fclose(fp);
         return SIM_ERR_IO;
     }
-    /* The file set policies by field; run their init hooks like a fresh start. */
     sim_set_policy(s, s->sched_policy, s->repl_policy);
-    sim_set_observer(s, fn, user);
+    sim_set_observer(s, observer, observer_user);
 
     if (L) {
         layout_init(L);
