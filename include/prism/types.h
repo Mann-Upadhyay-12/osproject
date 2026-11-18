@@ -15,10 +15,10 @@
 #define PRISM_MAX_NAME_LEN       32
 #define PRISM_GANTT_HISTORY      512
 
-/* Extensions Limits */
 #define PRISM_MAX_RESOURCES      16
 #define PRISM_MAX_MSG_QUEUE      32
 #define PRISM_MAX_CHECKPOINTS    8
+#define PRISM_MAX_SEMAPHORES     16
 
 typedef uint64_t tick_t;
 typedef int32_t  sim_pid_t;
@@ -32,25 +32,32 @@ typedef enum {
     PROC_BLOCKED_FAULT,
     PROC_BLOCKED_RESOURCE,
     PROC_BLOCKED_IPC,
+    PROC_BLOCKED_SEM,
+    PROC_SLEEPING,
+    PROC_BLOCKED_WAIT,
     PROC_TERMINATED
 } proc_state_t;
 
 typedef enum {
     BURST_CPU = 0,
     BURST_IO,
-    BURST_ACQUIRE,    /* resource request */
-    BURST_RELEASE,    /* resource release */
-    BURST_IPC_SEND,   /* send message to target PID */
-    BURST_IPC_RECV,   /* receive message */
-    BURST_CHECKPOINT  /* capture checkpoint */
+    BURST_ACQUIRE,
+    BURST_RELEASE,
+    BURST_IPC_SEND,
+    BURST_IPC_RECV,
+    BURST_CHECKPOINT,
+    BURST_SEM_WAIT,
+    BURST_SEM_SIGNAL,
+    BURST_FORK,
+    BURST_WAIT_CHILD
 } burst_kind_t;
 
 typedef struct {
-    uint8_t  kind;          /* burst_kind_t */
-    uint16_t duration;      /* duration in ticks, or resource/target id */
-    uint16_t remaining;     /* ticks remaining in current burst */
-    int16_t  target_id;     /* resource_id or target_pid */
-    int16_t  extra_data;    /* message payload or count */
+    uint8_t  kind;
+    uint16_t duration;
+    uint16_t remaining;
+    int16_t  target_id;
+    int16_t  extra_data;
 } burst_t;
 
 typedef enum {
@@ -62,6 +69,9 @@ typedef enum {
     SCHED_ADAPTIVE,
     SCHED_CFS,
     SCHED_BFS,
+    SCHED_RM,
+    SCHED_EDF,
+    SCHED_SMP,
     SCHED_COUNT
 } sched_policy_t;
 
@@ -88,21 +98,32 @@ typedef enum {
     EVENT_PAGE_EVICT,
     EVENT_RAM_SHRUNK,
     EVENT_PROC_KILLED,
-    /* Resource & Deadlock Events */
     EVENT_RESOURCE_REQUEST,
     EVENT_RESOURCE_ACQUIRED,
     EVENT_RESOURCE_RELEASED,
     EVENT_RESOURCE_BLOCKED,
     EVENT_DEADLOCK_DETECTED,
     EVENT_DEADLOCK_RESOLVED,
-    /* IPC Events */
     EVENT_IPC_SEND,
     EVENT_IPC_RECV,
     EVENT_IPC_BLOCKED,
-    /* Checkpoint & Rollback Events */
     EVENT_CHECKPOINT_SAVED,
     EVENT_CHECKPOINT_RESTORED,
-    EVENT_FAULT_INJECTED
+    EVENT_FAULT_INJECTED,
+    EVENT_SEM_WAIT,
+    EVENT_SEM_BLOCKED,
+    EVENT_SEM_SIGNAL,
+    EVENT_SEM_WAKE,
+    EVENT_STALLED,
+    EVENT_JOB_RELEASE,
+    EVENT_JOB_COMPLETE,
+    EVENT_DEADLINE_MISS,
+    EVENT_MIGRATE,
+    EVENT_FORK,
+    EVENT_WAIT_BLOCKED,
+    EVENT_ZOMBIE,
+    EVENT_REAP,
+    EVENT_ORPHAN
 } event_type_t;
 
 typedef struct {
@@ -110,8 +131,8 @@ typedef struct {
     event_type_t type;
     sim_pid_t    pid;
     int32_t      core_id;
-    int32_t      detail1;    /* e.g., page number, frame, resource_id */
-    int32_t      detail2;    /* e.g., victim frame, target pid */
+    int32_t      detail1;
+    int32_t      detail2;
 } sim_event_t;
 
-#endif /* PRISM_TYPES_H */
+#endif

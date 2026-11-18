@@ -1,0 +1,15 @@
+# Bounded buffer (producer-consumer) with 3 slots
+# empty counts free slots, full counts filled slots, mutex guards the buffer.
+# Producers are fast and consumers slow, so producers end up blocked on "empty".
+cores 2
+frames 8
+sched rr
+quantum 2
+semaphore mutex 1
+semaphore empty 3
+semaphore full 0
+
+proc Producer1 arrival=0 bursts=C2,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1
+proc Producer2 arrival=1 bursts=C2,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1,wait:empty,wait:mutex,C1,signal:mutex,signal:full,C1
+proc Consumer1 arrival=0 bursts=C1,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3
+proc Consumer2 arrival=2 bursts=C1,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3,wait:full,wait:mutex,C1,signal:mutex,signal:empty,C3

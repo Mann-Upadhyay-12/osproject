@@ -8,6 +8,7 @@ struct sim;
 typedef struct sched_ops {
     sched_policy_t policy;
     const char    *name;
+    const char    *key;
     void      (*init)(struct sim *s);
     void      (*on_ready)(struct sim *s, sim_pid_t pid);
     sim_pid_t (*pick_next)(struct sim *s, int core_id);
@@ -17,4 +18,6 @@ typedef struct sched_ops {
 
 const sched_ops_t *sched_get_ops(sched_policy_t policy);
 
-#endif /* PRISM_SCHED_H */
+bool sched_lookup(const char *name, sched_policy_t *out);
+
+#endif

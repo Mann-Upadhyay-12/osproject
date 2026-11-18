@@ -71,4 +71,4 @@ static int g_tests_failed = 0;
         printf("--------------------------------------------------\n\n"); \
     } while(0)
 
-#endif /* PRISM_TEST_HARNESS_H */
+#endif

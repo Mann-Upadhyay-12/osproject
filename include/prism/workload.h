@@ -2,22 +2,7 @@
 #define PRISM_WORKLOAD_H
 
 #include "prism/sim.h"
-
-/*
- * Workload format:
- * # Comments start with '#'
- * cores 1
- * frames 4
- * disk_latency 5
- * sched rr
- * repl lru
- * quantum 2
- * seed 42
- *
- * proc P1 arrival=0 bursts=C10,I5,C15 pages=0,1,2,3,0,1,4
- * proc P2 arrival=2 bursts=C5,I10,C10 pages=loop:0:4:5
- * proc P3 arrival=4 bursts=C20 pages=random:0:7:20
- */
+#include "prism/sim_api.h"
 
 typedef struct {
     int             cores;
@@ -36,12 +21,13 @@ typedef struct {
     bool            has_seed;
 } workload_config_t;
 
-/* Parse a workload file into a simulation instance */
 bool workload_load_file(const char *filepath, sim_t *sim, workload_config_t *cfg);
 
-/* Generate synthetic workloads */
+bool workload_parse_bursts(proc_spec_t *spec, const char *bursts, const sim_t *sim);
+bool workload_parse_pages(proc_spec_t *spec, const char *pages, uint64_t seed, int pid);
+
 bool workload_generate_mixed(sim_t *sim, int num_procs, uint64_t seed);
 bool workload_generate_belady(sim_t *sim);
 bool workload_generate_thrashing(sim_t *sim, int num_procs);
 
-#endif /* PRISM_WORKLOAD_H */
+#endif

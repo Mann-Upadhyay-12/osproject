@@ -66,7 +66,84 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Flat memory snapshot & rewind verified
 - [x] Extended test coverage for new schedulers (SJF, SRTF, CFS, BFS)
 - [x] Documentation & workload guide updates in README.md
-- [ ] GUI Development (Deferred to the very end after all testing is complete)
+- [x] GUI Development → Milestones 7–10 and 12 done (`prism-gui`), M11 polish mostly done
+
+---
+
+## Milestone 7 — Interactive core API (see `GUI_PLAN.md` §3)
+- [x] `sim_api.[ch]`: `proc_spec_t`, spawn (arrives now) / remove (holes, pids never reused) / update, `sim_reset`, live `sim_set_sched` / `sim_set_repl`, `sim_set_frames`, `sim_run_until`, `sim_step_event`
+- [x] `libprism.a` holds the whole core; `make test` builds and runs every `tests/test_*.c`; header dependency tracking in Makefile
+- [x] Observer (`sim_set_observer`) fires for every trace event in trace order, survives reset/load, never affects the hash
+- [x] Scenario save/load with inline `layout` lines (`scenario.[ch]`); old workload files still load; saved files still run in `prism-cli`
+- [x] `tests/test_api.c` (11 tests) green; `make debug` clean
+- [ ] (optional) TUI reworked to use the observer
+
+**Status:** Completed.
+
+## Milestone 8 — GUI shell  (done)
+- [x] raylib window, toolbar, palette, canvas with pan/zoom/grid
+- [x] Place/drag/delete nodes; auto links; validation messages
+- [x] Inspector shows selected node fields (read-only first)
+
+## Milestone 9 — Process builder & editing  (done)
+- [x] Builder dialog with burst editor + validation; edit existing process
+- [x] Scheduler/Memory/CPU/Disk node controls wired to `sim_set_*`
+- [x] Save/Load buttons; Random + Templates
+
+## Milestone 10 — Run mode & animation  (done)
+- [x] Run/pause/step/speed; reset
+- [x] Token animation along links from observer events; memory grid updates + evict flash
+- [x] Event List, Gantt strip, Metrics panels
+- [x] **Inject process mid-run**
+
+## Milestone 11 — Polish & demo
+- [x] Clean `make debug` run, no leaks (core + GUI under ASan/UBSan); determinism test through the API (`tests/test_metrics.c`, GUI `--back`)
+- [x] Preset scenarios menu (lists `workloads/*.txt`) — [x] dedicated presets: `convoy`, `starvation`, `interactive_mix`, `thrashing`, `locality`
+- [x] Screenshots for report (`docs/prism-gui.png`, `docs/prism-compare*.png`, `--shot`); [ ] GIF; demo script: build scenario live → run → inject process → switch FIFO↔LRU → show thrashing
+
+## Milestone 12 — Compare & learn (GUI overhaul)
+- [x] Core: `metrics.[ch]` — `sim_metrics_compute` (one definition of every metric), `sim_prepare_variant` (rewound, observer-free copy with other policies / quantum / frames), `sim_run_bounded`; `tests/test_metrics.c` checks textbook answers (FCFS 8.75, SJF 7.75, SRTF 6.5, RR 11.75; FIFO 15 / LRU 12 / OPT 9; Belady 9 -> 10)
+- [x] Compare view: algorithms x test cases, metric bar chart with "best on most cases", results table, per-algorithm Gantt charts on one time axis
+- [x] Page replacement compare: faults-vs-frames curve with Belady detection, textbook frame table per policy
+- [x] Explain: per-event narration with the algorithm's reason (who else was waiting and their key), caption over the canvas, algorithm cards in the inspector
+- [x] Step back / click a timeline to rewind (deterministic replay); textbook CPU Gantt chart; per-process results table
+- [x] Fixes: Save no longer overwrites bundled presets; failed startup load no longer leaves an uninitialised sim; clicks inside bottom panels (event rows, timelines) work again
+
+## Milestone 13 — Labs view + reference-string lab
+- [x] Core `refstring.[ch]`: runs a reference string through the real engine and records per-step frames, hits, victims; textbook test (FIFO 15 / LRU 12 / Clock 14 / OPT 9)
+- [x] Trace import: valgrind lackey records or one address per line, pages renumbered by first use (`refstr_load_trace`)
+- [x] GUI: third top-level view **Labs** (Tab cycles Simulate → Compare → Labs); reference-string tab with presets, side-by-side frame tables, step cursor with per-policy eviction reasons, drop a trace file
+
+## Milestone 14 — Disk scheduling lab
+- [x] Core `disk.[ch]`: FCFS, SSTF, SCAN, C-SCAN, LOOK, C-LOOK behind an ops table; textbook totals as tests (640 / 236 / 236 / 382 / 299 / 322)
+- [x] GUI tab: request queue, head, direction; one seek diagram per policy, request-by-request cursor with the reason for each move
+
+## Milestone 15 — Contiguous memory allocation lab
+- [x] Core `contig.[ch]`: first / best / worst / next fit, free with hole merging, compaction, external fragmentation stats; tests
+- [x] GUI tab: request script, memory bar per step, failed requests, fragmentation numbers
+
+## Milestone 16 — Address translation lab
+- [x] Core `paging.[ch]`: split an address into level indexes + offset, table sizes, internal fragmentation, multi-level walk; tests
+- [x] GUI tab: address bits / page size / levels; bit-split bar, translation walk diagram, TLB with LRU and EAT, table memory vs flat table
+
+## Milestone 17 — Semaphores + classic sync problems
+- [x] Engine counting semaphores (`semaphore NAME VALUE`, bursts `wait:NAME` / `signal:NAME`, aliases `P:` / `V:`), FIFO waiter queue, `PROC_BLOCKED_SEM`, stall detection (`sim_is_stalled`, `EVENT_STALLED`)
+- [x] Presets `producer_consumer`, `dining_philosophers` (deadlocks), `dining_philosophers_fixed`, `readers_writers`; tests in `tests/test_sync.c`
+- [x] GUI: Sync tab (values, waiter queues, resources, who waits for what, deadlock banner), narration for wait/signal/wake/stall
+
+## Milestone 18 — Real-time scheduling
+- [x] Periodic tasks (`period=`, `deadline=`, `jobs=` on a `proc` line; `PROC_SLEEPING` between jobs), job release / completion / deadline-miss events
+- [x] Rate Monotonic + EDF schedulers (preemptive, aperiodic work in idle time), schedulability analysis (`realtime.h`: U, RM bound, EDF test, hyperperiod)
+- [x] Presets `rt_rate_monotonic`, `rt_deadline_miss`; textbook tests in `tests/test_realtime.c`; GUI Real-time tab, builder fields, Compare "Deadline misses"
+
+## Milestone 19 — Multi-core scheduling
+- [x] Per-core ready queues (`PRISM_READY_QUEUES`), `SMP` scheduler: cache-warm placement, idle-core stealing, periodic push balancing, `EVENT_MIGRATE`
+- [x] CPU affinity (`affinity=0,2` on a `proc` line, builder checkboxes), core-change count for every policy (metrics + Compare); preset `smp_affinity`; tests in `tests/test_smp.c`
+
+## Milestone 20 — Process tree
+- [x] `fork` / `wait` bursts and `parent=NAME` (`src/engine/proctree.c`): a child exists only once its parent forks it; `PROC_BLOCKED_WAIT`; events FORK, WAIT_BLOCKED, ZOMBIE, REAP, ORPHAN
+- [x] Zombies until reaped, orphans adopted and reaped by init, never-forked children do not hang the run; preset `process_tree`; tests in `tests/test_tree.c`
+- [x] GUI: Tree tab (indented tree under init), narration, builder Parent field and + fork / + wait
 
 ---
 
@@ -75,7 +152,7 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] **Extension 2: Fault injection** — dynamic process crash/kill (`sim_kill_process`), dynamic physical memory shrink fault (`sim_shrink_frames`).
 - [x] **Extension 3: IPC + sync** — deterministic mailbox message queues (`sim_ipc_send`, `sim_ipc_recv`), blocking wait-for-message states (`PROC_BLOCKED_IPC`), synchronous wakeups on message arrival.
 - [x] **Extension 4: Checkpoint / Restore** — per-process snapshot slots (`sim_checkpoint_create`, `sim_checkpoint_restore`) + full simulation state serialization & rewind.
-- [ ] **Extension 5: GUI Frontend** — Graphical desktop/web dashboard (deferred to final stage after CLI/TUI and core validation).
+- [x] **Extension 5: GUI Frontend** — `prism-gui` (Milestones 8–10, 12 compare & explain; M11 polish: GIF + demo script open).
 
 ## Weekly checkpoint
 End of each week: milestone checkboxes ticked, `make test` green, one new demo-able thing you can show.

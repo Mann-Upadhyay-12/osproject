@@ -20,4 +20,4 @@ static inline uint64_t fnv1a_update(uint64_t hash, const void *data, size_t len)
     return hash;
 }
 
-#endif /* PRISM_HASH_H */
+#endif

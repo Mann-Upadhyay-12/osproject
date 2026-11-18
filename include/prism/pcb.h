@@ -7,7 +7,7 @@ typedef struct {
     bool     valid;
     bool     referenced;
     bool     modified;
-    int16_t  frame_idx;         /* index into sim->frames, or -1 */
+    int16_t  frame_idx;
     tick_t   last_access_tick;
     tick_t   load_tick;
 } page_table_entry_t;
@@ -16,53 +16,64 @@ typedef struct {
     sim_pid_t          pid;
     char               name[PRISM_MAX_NAME_LEN];
     proc_state_t       state;
-    
-    /* Scheduling attributes */
+
     tick_t             arrival_tick;
-    int64_t            start_tick;          /* -1 until first dispatch */
-    int64_t            finish_tick;         /* -1 until termination */
-    uint16_t           priority;            /* 0 is highest */
+    int64_t            start_tick;
+    int64_t            finish_tick;
+    uint16_t           priority;
+    uint16_t           base_priority;
     uint16_t           quantum_remaining;
-    int16_t            assigned_core;       /* -1 if not running */
-    uint64_t           vruntime;            /* CFS virtual runtime (fixed-point or scaled) */
-    uint64_t           virtual_deadline;    /* BFS virtual deadline */
-    
-    /* Metrics */
+    int16_t            assigned_core;
+    uint64_t           vruntime;
+    uint64_t           virtual_deadline;
+
     uint32_t           total_cpu_time;
     uint32_t           total_wait_time;
     uint32_t           total_io_time;
     uint32_t           total_fault_time;
     uint32_t           num_context_switches;
     uint32_t           num_page_faults;
-    
-    /* Burst script */
+
     burst_t            bursts[PRISM_MAX_BURSTS];
     uint16_t           num_bursts;
     uint16_t           curr_burst_idx;
-    
-    /* Page reference script */
+
     uint16_t           page_refs[PRISM_MAX_PAGE_REFS];
     uint16_t           num_page_refs;
     uint16_t           curr_page_ref_idx;
-    
-    /* Page Table */
+
     page_table_entry_t pt[PRISM_MAX_VIRTUAL_PAGES];
-    
-    /* Blocking state details */
+
     uint16_t           io_remaining;
     uint16_t           fault_remaining;
     uint16_t           fault_vpage;
-    int16_t            waiting_resource;    /* resource_id waiting on, or -1 */
-    int16_t            waiting_ipc_pid;     /* waiting for message from pid, or -1 */
+    int16_t            waiting_resource;
+    int16_t            waiting_ipc_pid;
+    int16_t            waiting_semaphore;
 
-    /* Resource holdings bitmask */
     uint16_t           held_resources_mask;
 
-    /* Checkpoint records count */
     uint16_t           num_checkpoints;
 
-    /* Intrusive index-based queue links (for flat queues) */
+    uint16_t           period;
+    uint16_t           relative_deadline;
+    uint16_t           num_jobs;
+    uint16_t           jobs_done;
+    tick_t             job_release;
+    tick_t             job_deadline;
+    bool               job_missed;
+    uint16_t           deadline_misses;
+
+    uint8_t            affinity_mask;
+    int8_t             last_core;
+    uint16_t           migrations;
+
+    int16_t            parent_pid;
+    bool               awaiting_fork;
+    bool               zombie;
+    bool               orphaned;
+
     int16_t            next_proc;
 } pcb_t;
 
-#endif /* PRISM_PCB_H */
+#endif

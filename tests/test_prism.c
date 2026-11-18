@@ -3,6 +3,30 @@
 #include "test_harness.h"
 #include <string.h>
 
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+static uint32_t faults_for_reference_string(repl_policy_t policy, uint32_t frames, const uint16_t *refs, size_t count) {
+    static sim_t sim;
+    sim_init(&sim, 1, frames, 1, SCHED_FCFS, policy, 42);
+    sim_pid_t pid = sim_add_process(&sim, "RefString", 0);
+    sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)count);
+    for (size_t i = 0; i < count; i++) sim_add_page_ref(&sim, pid, refs[i]);
+    sim_run(&sim);
+    return sim.total_page_faults;
+}
+
+static sim_pid_t add_cpu_process(sim_t *sim, const char *name, tick_t arrival, uint16_t burst) {
+    sim_pid_t pid = sim_add_process(sim, name, arrival);
+    sim_add_burst(sim, pid, BURST_CPU, burst);
+    return pid;
+}
+
+static void add_targeted_burst(sim_t *sim, sim_pid_t pid, burst_kind_t kind, int target) {
+    sim_add_burst(sim, pid, kind, 1);
+    pcb_t *p = &sim->procs[pid];
+    p->bursts[p->num_bursts - 1].target_id = (int16_t)target;
+}
+
 static void test_determinism(void) {
     TEST_CASE("Log Determinism & FNV-1a Hash Invariance");
 
@@ -31,17 +55,14 @@ static void test_snapshot_rewind(void) {
     sim_init(&sim_full, 1, 4, 2, SCHED_MLFQ, REPL_FIFO, 777);
     workload_generate_mixed(&sim_full, 3, 777);
 
-    /* Step 10 ticks and snapshot */
     for (int t = 0; t < 10; t++) {
         sim_step(&sim_full);
     }
     sim_snapshot(&sim_full, &sim_snap);
 
-    /* Finish full run */
     sim_run(&sim_full);
     uint64_t expected_hash = sim_full.log_hash;
 
-    /* Restore from snapshot and run */
     sim_restore(&sim_resumed, &sim_snap);
     sim_run(&sim_resumed);
 
@@ -53,40 +74,10 @@ static void test_classic_page_replacement(void) {
     TEST_CASE("Textbook Classic Page Replacement (FIFO=15, LRU=12, OPT=9)");
 
     static const uint16_t refs[] = {7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1};
-    size_t nrefs = sizeof(refs) / sizeof(refs[0]);
 
-    /* Test FIFO */
-    {
-        sim_t sim;
-        sim_init(&sim, 1, 3, 1, SCHED_FCFS, REPL_FIFO, 42);
-        sim_pid_t pid = sim_add_process(&sim, "FIFO_P", 0);
-        sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)nrefs);
-        for (size_t i = 0; i < nrefs; i++) sim_add_page_ref(&sim, pid, refs[i]);
-        sim_run(&sim);
-        ASSERT_EQ(sim.total_page_faults, 15);
-    }
-
-    /* Test LRU */
-    {
-        sim_t sim;
-        sim_init(&sim, 1, 3, 1, SCHED_FCFS, REPL_LRU, 42);
-        sim_pid_t pid = sim_add_process(&sim, "LRU_P", 0);
-        sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)nrefs);
-        for (size_t i = 0; i < nrefs; i++) sim_add_page_ref(&sim, pid, refs[i]);
-        sim_run(&sim);
-        ASSERT_EQ(sim.total_page_faults, 12);
-    }
-
-    /* Test OPT */
-    {
-        sim_t sim;
-        sim_init(&sim, 1, 3, 1, SCHED_FCFS, REPL_OPT, 42);
-        sim_pid_t pid = sim_add_process(&sim, "OPT_P", 0);
-        sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)nrefs);
-        for (size_t i = 0; i < nrefs; i++) sim_add_page_ref(&sim, pid, refs[i]);
-        sim_run(&sim);
-        ASSERT_EQ(sim.total_page_faults, 9);
-    }
+    ASSERT_EQ(faults_for_reference_string(REPL_FIFO, 3, refs, ARRAY_LEN(refs)), 15);
+    ASSERT_EQ(faults_for_reference_string(REPL_LRU, 3, refs, ARRAY_LEN(refs)), 12);
+    ASSERT_EQ(faults_for_reference_string(REPL_OPT, 3, refs, ARRAY_LEN(refs)), 9);
 
     TEST_PASS();
 }
@@ -95,29 +86,9 @@ static void test_belady_anomaly(void) {
     TEST_CASE("Belady's Anomaly (FIFO 3 frames = 9 faults, 4 frames = 10 faults)");
 
     static const uint16_t refs[] = {1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5};
-    size_t nrefs = sizeof(refs) / sizeof(refs[0]);
 
-    uint32_t faults_3frames = 0;
-    {
-        sim_t sim;
-        sim_init(&sim, 1, 3, 1, SCHED_FCFS, REPL_FIFO, 42);
-        sim_pid_t pid = sim_add_process(&sim, "Belady3", 0);
-        sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)nrefs);
-        for (size_t i = 0; i < nrefs; i++) sim_add_page_ref(&sim, pid, refs[i]);
-        sim_run(&sim);
-        faults_3frames = sim.total_page_faults;
-    }
-
-    uint32_t faults_4frames = 0;
-    {
-        sim_t sim;
-        sim_init(&sim, 1, 4, 1, SCHED_FCFS, REPL_FIFO, 42);
-        sim_pid_t pid = sim_add_process(&sim, "Belady4", 0);
-        sim_add_burst(&sim, pid, BURST_CPU, (uint16_t)nrefs);
-        for (size_t i = 0; i < nrefs; i++) sim_add_page_ref(&sim, pid, refs[i]);
-        sim_run(&sim);
-        faults_4frames = sim.total_page_faults;
-    }
+    uint32_t faults_3frames = faults_for_reference_string(REPL_FIFO, 3, refs, ARRAY_LEN(refs));
+    uint32_t faults_4frames = faults_for_reference_string(REPL_FIFO, 4, refs, ARRAY_LEN(refs));
 
     ASSERT_EQ(faults_3frames, 9);
     ASSERT_EQ(faults_4frames, 10);
@@ -133,20 +104,16 @@ static void test_fault_injection(void) {
     sim_init(&sim, 2, 8, 2, SCHED_RR, REPL_LRU, 42);
     workload_generate_mixed(&sim, 4, 42);
 
-    /* Step 5 ticks */
     for (int i = 0; i < 5; i++) sim_step(&sim);
 
-    /* Kill process 1 */
     bool killed = sim_inject_kill(&sim, 1);
     ASSERT_TRUE(killed);
     ASSERT_EQ(sim.procs[1].state, PROC_TERMINATED);
 
-    /* Shrink RAM from 8 frames to 4 */
     bool shrunk = sim_inject_shrink_ram(&sim, 4);
     ASSERT_TRUE(shrunk);
     ASSERT_EQ(sim.total_frames, 4);
 
-    /* Ensure simulation runs to completion cleanly */
     sim_run(&sim);
     ASSERT_TRUE(sim_is_done(&sim));
 
@@ -156,28 +123,13 @@ static void test_fault_injection(void) {
 static void test_sjf_srtf_schedulers(void) {
     TEST_CASE("Textbook SJF and SRTF Scheduling Verification");
 
-    /*
-     * Classic Textbook Problem:
-     * P1 arrival=0 burst=8
-     * P2 arrival=1 burst=4
-     * P3 arrival=2 burst=9
-     * P4 arrival=3 burst=5
-     *
-     * Non-preemptive SJF:
-     * P1 runs [0..8]. At t=8, ready: P2(4), P4(5), P3(9) -> P2 runs [8..12]
-     * At t=12, ready: P4(5), P3(9) -> P4 runs [12..17]
-     * At t=17, ready: P3(9) -> P3 runs [17..26]
-     * Finish: P1=8, P2=12, P4=17, P3=26.
-     * Turnaround: P1=8, P2=11, P3=24, P4=14. Avg = (8+11+24+14)/4 = 14.25
-     * Wait: P1=0, P2=7, P3=15, P4=9. Avg = (0+7+15+9)/4 = 7.75
-     */
     {
         sim_t sim;
         sim_init(&sim, 1, 16, 1, SCHED_SJF, REPL_LRU, 1);
-        sim_pid_t p1 = sim_add_process(&sim, "P1", 0); sim_add_burst(&sim, p1, BURST_CPU, 8);
-        sim_pid_t p2 = sim_add_process(&sim, "P2", 1); sim_add_burst(&sim, p2, BURST_CPU, 4);
-        sim_pid_t p3 = sim_add_process(&sim, "P3", 2); sim_add_burst(&sim, p3, BURST_CPU, 9);
-        sim_pid_t p4 = sim_add_process(&sim, "P4", 3); sim_add_burst(&sim, p4, BURST_CPU, 5);
+        sim_pid_t p1 = add_cpu_process(&sim, "P1", 0, 8);
+        sim_pid_t p2 = add_cpu_process(&sim, "P2", 1, 4);
+        sim_pid_t p3 = add_cpu_process(&sim, "P3", 2, 9);
+        sim_pid_t p4 = add_cpu_process(&sim, "P4", 3, 5);
         sim_run(&sim);
 
         ASSERT_EQ(sim.procs[p1].finish_tick, 8);
@@ -190,23 +142,13 @@ static void test_sjf_srtf_schedulers(void) {
         ASSERT_EQ(sim.procs[p3].total_wait_time, 15);
     }
 
-    /*
-     * Preemptive SRTF:
-     * P1 runs [0..1] (rem=7). At t=1, P2 arrives (rem=4 < 7) -> PREEMPTS P1!
-     * P2 runs [1..5] (finishes at 5).
-     * At t=5, ready: P4(rem 5), P1(rem 7), P3(rem 9). P4 runs [5..10] (finishes at 10).
-     * At t=10, ready: P1(rem 7), P3(rem 9). P1 runs [10..17] (finishes at 17).
-     * At t=17, ready: P3(rem 9). P3 runs [17..26] (finishes at 26).
-     * Finish: P2=5, P4=10, P1=17, P3=26.
-     * Wait: P1=(10-1)=9, P2=0, P4=(5-3)=2, P3=(17-2)=15.
-     */
     {
         sim_t sim;
         sim_init(&sim, 1, 16, 1, SCHED_SRTF, REPL_LRU, 1);
-        sim_pid_t p1 = sim_add_process(&sim, "P1", 0); sim_add_burst(&sim, p1, BURST_CPU, 8);
-        sim_pid_t p2 = sim_add_process(&sim, "P2", 1); sim_add_burst(&sim, p2, BURST_CPU, 4);
-        sim_pid_t p3 = sim_add_process(&sim, "P3", 2); sim_add_burst(&sim, p3, BURST_CPU, 9);
-        sim_pid_t p4 = sim_add_process(&sim, "P4", 3); sim_add_burst(&sim, p4, BURST_CPU, 5);
+        sim_pid_t p1 = add_cpu_process(&sim, "P1", 0, 8);
+        sim_pid_t p2 = add_cpu_process(&sim, "P2", 1, 4);
+        sim_pid_t p3 = add_cpu_process(&sim, "P3", 2, 9);
+        sim_pid_t p4 = add_cpu_process(&sim, "P4", 3, 5);
         sim_run(&sim);
 
         ASSERT_EQ(sim.procs[p2].finish_tick, 5);
@@ -225,38 +167,79 @@ static void test_sjf_srtf_schedulers(void) {
 static void test_cfs_bfs_schedulers(void) {
     TEST_CASE("CFS and BFS Schedulers Invariance & Fairness");
 
-    /* CFS with two identical CPU bound tasks -> perfect interleaved share */
     {
         sim_t sim;
         sim_init(&sim, 1, 8, 1, SCHED_CFS, REPL_LRU, 42);
-        sim_pid_t p1 = sim_add_process(&sim, "CFS_A", 0); sim_add_burst(&sim, p1, BURST_CPU, 10);
-        sim_pid_t p2 = sim_add_process(&sim, "CFS_B", 0); sim_add_burst(&sim, p2, BURST_CPU, 10);
+        sim_pid_t p1 = add_cpu_process(&sim, "CFS_A", 0, 10);
+        sim_pid_t p2 = add_cpu_process(&sim, "CFS_B", 0, 10);
         sim_run(&sim);
 
         ASSERT_TRUE(sim.procs[p1].total_cpu_time == 10);
         ASSERT_TRUE(sim.procs[p2].total_cpu_time == 10);
-        /* Both finish at tick 20 and have equal wait time due to fair 2-tick slices */
         ASSERT_EQ(sim.tick, 20);
         ASSERT_TRUE(sim.procs[p1].total_wait_time >= 8 && sim.procs[p1].total_wait_time <= 10);
         ASSERT_TRUE(sim.procs[p2].total_wait_time >= 8 && sim.procs[p2].total_wait_time <= 10);
     }
 
-    /* BFS with high priority vs low priority deadline behavior */
     {
         sim_t sim;
         sim_init(&sim, 1, 8, 1, SCHED_BFS, REPL_LRU, 42);
         sim_pid_t p_high = sim_add_process(&sim, "BFS_High", 0);
-        sim.procs[p_high].priority = 0; /* Earlier deadline */
+        sim.procs[p_high].priority = 0;
         sim_add_burst(&sim, p_high, BURST_CPU, 6);
 
         sim_pid_t p_low = sim_add_process(&sim, "BFS_Low", 0);
-        sim.procs[p_low].priority = 3;  /* Later deadline */
+        sim.procs[p_low].priority = 3;
         sim_add_burst(&sim, p_low, BURST_CPU, 6);
 
         sim_run(&sim);
         ASSERT_EQ(sim.tick, 12);
-        /* Higher priority process finishes earlier */
         ASSERT_TRUE(sim.procs[p_high].finish_tick < sim.procs[p_low].finish_tick);
+    }
+
+    TEST_PASS();
+}
+
+static void test_cfs_weights_and_sleepers(void) {
+    TEST_CASE("CFS: CPU share follows weight; a waking sleeper is not sent to the back");
+
+    {
+        sim_t sim;
+        sim_init(&sim, 1, 8, 1, SCHED_CFS, REPL_LRU, 42);
+        sim_pid_t hi = sim_add_process(&sim, "W_Hi", 0);
+        sim_add_burst(&sim, hi, BURST_CPU, 64);
+        sim_pid_t lo = sim_add_process(&sim, "W_Lo", 0);
+        sim.procs[lo].priority = 4;
+        sim_add_burst(&sim, lo, BURST_CPU, 64);
+
+        while (sim.procs[hi].state != PROC_TERMINATED && sim_step(&sim)) { }
+        ASSERT_TRUE(sim.procs[hi].state == PROC_TERMINATED);
+        ASSERT_TRUE(sim.procs[lo].total_cpu_time >= 18 && sim.procs[lo].total_cpu_time <= 22);
+        sim_run(&sim);
+        ASSERT_EQ(sim.tick, 128);
+    }
+
+    {
+        sim_t sim;
+        sim_init(&sim, 1, 8, 1, SCHED_CFS, REPL_LRU, 42);
+        sim_pid_t a = add_cpu_process(&sim, "Hog_A", 0, 40);
+        sim_pid_t b = add_cpu_process(&sim, "Hog_B", 0, 40);
+        sim_pid_t sl = sim_add_process(&sim, "Sleeper", 0);
+        for (int i = 0; i < 6; i++) {
+            sim_add_burst(&sim, sl, BURST_CPU, 1);
+            if (i < 5) sim_add_burst(&sim, sl, BURST_IO, 7);
+        }
+
+        uint64_t waited = 0, longest = 0;
+        while (sim.procs[sl].state != PROC_TERMINATED) {
+            bool waiting_after_wake = sim.procs[sl].state == PROC_READY && sim.procs[sl].total_cpu_time > 0;
+            waited = waiting_after_wake ? waited + 1 : 0;
+            if (waited > longest) longest = waited;
+            if (!sim_step(&sim)) break;
+        }
+        ASSERT_TRUE(sim.procs[sl].state == PROC_TERMINATED);
+        ASSERT_TRUE(sim.procs[a].state != PROC_TERMINATED && sim.procs[b].state != PROC_TERMINATED);
+        ASSERT_TRUE(longest <= 2);
     }
 
     TEST_PASS();
@@ -273,24 +256,21 @@ static void test_resource_manager_and_deadlock(void) {
     ASSERT_EQ(r0, 0);
     ASSERT_EQ(r1, 1);
 
-    /* P0: Checkpoint -> Acquire R0 -> CPU 2 -> Acquire R1 */
     sim_pid_t p0 = sim_add_process(&sim, "P0", 0);
     sim_add_burst(&sim, p0, BURST_CHECKPOINT, 1);
-    sim_add_burst(&sim, p0, BURST_ACQUIRE, 1); sim.procs[p0].bursts[1].target_id = (int16_t)r0;
+    add_targeted_burst(&sim, p0, BURST_ACQUIRE, r0);
     sim_add_burst(&sim, p0, BURST_CPU, 2);
-    sim_add_burst(&sim, p0, BURST_ACQUIRE, 1); sim.procs[p0].bursts[3].target_id = (int16_t)r1;
+    add_targeted_burst(&sim, p0, BURST_ACQUIRE, r1);
     sim_add_burst(&sim, p0, BURST_CPU, 4);
 
-    /* P1: Checkpoint -> CPU 1 -> Acquire R1 -> CPU 1 -> Acquire R0 (Deadlock!) */
     sim_pid_t p1 = sim_add_process(&sim, "P1", 0);
     sim_add_burst(&sim, p1, BURST_CHECKPOINT, 1);
     sim_add_burst(&sim, p1, BURST_CPU, 1);
-    sim_add_burst(&sim, p1, BURST_ACQUIRE, 1); sim.procs[p1].bursts[2].target_id = (int16_t)r1;
+    add_targeted_burst(&sim, p1, BURST_ACQUIRE, r1);
     sim_add_burst(&sim, p1, BURST_CPU, 1);
-    sim_add_burst(&sim, p1, BURST_ACQUIRE, 1); sim.procs[p1].bursts[4].target_id = (int16_t)r0;
+    add_targeted_burst(&sim, p1, BURST_ACQUIRE, r0);
     sim_add_burst(&sim, p1, BURST_CPU, 4);
 
-    /* Run until deadlock cycle forms */
     for (int t = 0; t < 6; t++) {
         sim_step(&sim);
     }
@@ -298,12 +278,10 @@ static void test_resource_manager_and_deadlock(void) {
     ASSERT_TRUE(sim.deadlock_detected);
     ASSERT_EQ(sim.deadlock_cycle_len, 2);
 
-    /* Test Automatic Checkpoint Rollback recovery */
     bool recovered = sim_recover_deadlock_rollback(&sim);
     ASSERT_TRUE(recovered);
     ASSERT_FALSE(sim.deadlock_detected);
 
-    /* Run to completion */
     sim_run(&sim);
     ASSERT_TRUE(sim_is_done(&sim));
 
@@ -316,19 +294,14 @@ static void test_ipc_message_queue(void) {
     sim_t sim;
     sim_init(&sim, 1, 8, 2, SCHED_RR, REPL_LRU, 42);
 
-    /* P0 sends message to P1, then P1 receives it */
     sim_pid_t p_prod = sim_add_process(&sim, "Producer", 0);
     sim_pid_t p_cons = sim_add_process(&sim, "Consumer", 0);
 
-    /* Consumer immediately tries to receive from producer -> should block */
-    sim_add_burst(&sim, p_cons, BURST_IPC_RECV, 1);
-    sim.procs[p_cons].bursts[0].target_id = (int16_t)p_prod;
+    add_targeted_burst(&sim, p_cons, BURST_IPC_RECV, p_prod);
     sim_add_burst(&sim, p_cons, BURST_CPU, 3);
 
-    /* Producer runs, then sends message to Consumer -> Consumer should unblock */
     sim_add_burst(&sim, p_prod, BURST_CPU, 2);
-    sim_add_burst(&sim, p_prod, BURST_IPC_SEND, 1);
-    sim.procs[p_prod].bursts[1].target_id = (int16_t)p_cons;
+    add_targeted_burst(&sim, p_prod, BURST_IPC_SEND, p_cons);
     sim.procs[p_prod].bursts[1].extra_data = 999;
     sim_add_burst(&sim, p_prod, BURST_CPU, 2);
 
@@ -350,6 +323,7 @@ int main(void) {
     test_fault_injection();
     test_sjf_srtf_schedulers();
     test_cfs_bfs_schedulers();
+    test_cfs_weights_and_sleepers();
     test_resource_manager_and_deadlock();
     test_ipc_message_queue();
 

@@ -1,0 +1,8 @@
+# Rate-monotonic textbook case: P1 (period 50, 20 ticks), P2 (period 100, 35 ticks).
+# Utilization 0.75 is under the RM bound 0.83, so every deadline is met.
+cores 1
+frames 8
+sched rm
+
+proc P1 arrival=0 period=50 jobs=8 bursts=C20
+proc P2 arrival=0 period=100 jobs=4 bursts=C35

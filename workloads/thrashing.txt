@@ -1,0 +1,15 @@
+# Thrashing: four processes each loop over 4 pages (16 pages of working set)
+# but RAM has only 6 frames. Every reference faults and the CPUs sit idle
+# waiting for the disk; no scheduler can fix that. Compare -> Page
+# replacement shows the fault count collapse once frames >= 16.
+cores 2
+frames 6
+disk_latency 4
+sched rr
+repl lru
+quantum 3
+
+proc A arrival=0 bursts=C16 pages=loop:0:3:4
+proc B arrival=0 bursts=C16 pages=loop:0:3:4
+proc C arrival=1 bursts=C16 pages=loop:0:3:4
+proc D arrival=1 bursts=C16 pages=loop:0:3:4
