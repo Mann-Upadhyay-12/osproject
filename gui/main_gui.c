@@ -22,6 +22,7 @@ typedef struct {
     const char *select;
     const char *tab;
     const char *compare_mode;
+    const char *lab;
     int         ticks;
     int         back;
     bool        open_builder;
@@ -50,7 +51,7 @@ static bool ctrl_down(void) {
 }
 
 static void toggle_view(gui_t *g) {
-    g->view = g->view == VIEW_SIM ? VIEW_COMPARE : VIEW_SIM;
+    g->view = (g->view + 1) % VIEW_COUNT;
     g->playing = false;
     if (g->view == VIEW_COMPARE) compare_mark_dirty(g);
 }
@@ -141,8 +142,8 @@ static void draw_status(gui_t *g, Rectangle r) {
         ui_text(r.x + 10, r.y + 4, 14, ColorAlpha(g->status_bad ? UI_BAD : UI_TEXT, alpha), "%s", g->status);
     }
 
-    const char *summary = g->view == VIEW_COMPARE
-        ? "compare view  |  Tab: back to Simulate"
+    const char *summary = g->view == VIEW_COMPARE ? "compare view  |  Tab: Labs"
+                        : g->view == VIEW_LABS ? "labs  |  Tab: back to Simulate"
         : TextFormat("%s  |  zoom %.0f%%  |  snap %s (G)", g->mode == MODE_EDIT ? "edit" : "run",
                      g->camera.zoom * 100, g->snap ? "on" : "off");
     ui_text(r.x + r.width - ui_text_width(summary, 13) - 10, r.y + 5, 13, UI_TEXT_DIM, "%s", summary);
@@ -195,7 +196,8 @@ static void frame(gui_t *g, float dt, bool *space_used) {
     ui_begin();
 
     if (simulating) draw_simulate_view(g, &L);
-    else compare_view(g, L.full_body);
+    else if (g->view == VIEW_COMPARE) compare_view(g, L.full_body);
+    else labs_view(g, L.full_body);
     panel_toolbar(g, L.toolbar);
     draw_status(g, L.status);
 
@@ -212,7 +214,8 @@ static void frame(gui_t *g, float dt, bool *space_used) {
 
 static void print_usage(void) {
     printf("usage: prism-gui [scenario] [--shot out.png] [--ticks N] [--select NODE] [--builder]\n"
-           "                 [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]\n");
+           "                 [--tab explain|events|gantt|states|table] [--compare sched|vm] [--back N]\n"
+           "                 [--lab refstring]\n");
 }
 
 static bool parse_args(int argc, char **argv, gui_args_t *a) {
@@ -228,6 +231,7 @@ static bool parse_args(int argc, char **argv, gui_args_t *a) {
         else if (strcmp(arg, "--tab") == 0 && has_value) a->tab = argv[++i];
         else if (strcmp(arg, "--back") == 0 && has_value) a->back = atoi(argv[++i]);
         else if (strcmp(arg, "--compare") == 0 && has_value) a->compare_mode = argv[++i];
+        else if (strcmp(arg, "--lab") == 0 && has_value) a->lab = argv[++i];
         else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
             print_usage();
             return false;
@@ -259,6 +263,7 @@ static gui_t *create_gui(void) {
 }
 
 static void destroy_gui(gui_t *g) {
+    labs_free(g);
     compare_free(g);
     ui_shutdown();
     CloseWindow();
@@ -320,6 +325,7 @@ static void apply_startup_args(gui_t *g, const gui_args_t *a) {
     if (a->open_builder) builder_open_new(g, g->mode == MODE_RUN);
     if (a->tab) select_tab_by_name(g, a->tab);
     if (a->compare_mode) compare_setup_args(g, a->compare_mode);
+    if (a->lab) labs_select(g, a->lab);
 }
 
 static bool take_screenshot(gui_t *g, const gui_args_t *a) {
@@ -348,7 +354,10 @@ static bool take_screenshot(gui_t *g, const gui_args_t *a) {
 static void load_dropped_file(gui_t *g) {
     if (!IsFileDropped()) return;
     FilePathList dropped = LoadDroppedFiles();
-    if (dropped.count > 0) gui_load(g, dropped.paths[0]);
+    if (dropped.count > 0) {
+        if (g->view == VIEW_LABS) labs_drop_file(g, dropped.paths[0]);
+        else gui_load(g, dropped.paths[0]);
+    }
     UnloadDroppedFiles(dropped);
 }
 
@@ -375,6 +384,7 @@ int main(int argc, char **argv) {
     panels_init();
     load_presets(g);
     compare_init(g);
+    labs_init(g);
     load_initial_scenario(g, args.scenario);
     apply_startup_args(g, &args);
 

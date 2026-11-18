@@ -109,6 +109,35 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Step back / click a timeline to rewind (deterministic replay); textbook CPU Gantt chart; per-process results table
 - [x] Fixes: Save no longer overwrites bundled presets; failed startup load no longer leaves an uninitialised sim; clicks inside bottom panels (event rows, timelines) work again
 
+## Milestone 13 — Labs view + reference-string lab
+- [x] Core `refstring.[ch]`: runs a reference string through the real engine and records per-step frames, hits, victims; textbook test (FIFO 15 / LRU 12 / Clock 14 / OPT 9)
+- [x] Trace import: valgrind lackey records or one address per line, pages renumbered by first use (`refstr_load_trace`)
+- [x] GUI: third top-level view **Labs** (Tab cycles Simulate → Compare → Labs); reference-string tab with presets, side-by-side frame tables, step cursor with per-policy eviction reasons, drop a trace file
+
+## Milestone 14 — Disk scheduling lab
+- [ ] Core `disk.[ch]`: FCFS, SSTF, SCAN, C-SCAN, LOOK, C-LOOK behind an ops table; textbook totals as tests
+- [ ] GUI tab: request queue, head, direction; seek path chart and total head movement per policy
+
+## Milestone 15 — Contiguous memory allocation lab
+- [ ] Core `contig.[ch]`: first / best / worst / next fit, free with hole merging, compaction, external fragmentation stats; tests
+- [ ] GUI tab: request script, memory bar per step, failed requests, fragmentation numbers
+
+## Milestone 16 — Address translation lab
+- [ ] Core `paging.[ch]`: split an address into level indexes + offset, table sizes, internal fragmentation, multi-level walk; tests
+- [ ] GUI tab: address bits / page size / levels; translation walk diagram
+
+## Milestone 17 — Semaphores + classic sync problems
+- [ ] Engine counting semaphores (`W:sem` / `S:sem` bursts), blocked state, stall detection; presets producer-consumer, dining philosophers, readers-writers
+
+## Milestone 18 — Real-time scheduling
+- [ ] Periodic tasks (period, exec, jobs), deadline misses, Rate Monotonic + EDF schedulers
+
+## Milestone 19 — Multi-core scheduling
+- [ ] Per-core ready queues, CPU affinity, load balancing (pull migration), migration counts
+
+## Milestone 20 — Process tree
+- [ ] fork / wait bursts, parent-child links, zombies and orphans (re-parented to init), tree view
+
 ---
 
 ## Extensions (Ranked in order)

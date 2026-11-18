@@ -44,7 +44,12 @@ static float draw_view_tabs(gui_t *g, float x, float y) {
         }
         g->view = VIEW_COMPARE;
     }
-    return x + 186;
+
+    if (ui_button_ex(22, (Rectangle){x + 172, y, 70, TOOLBAR_H}, "Labs", true, g->view == VIEW_LABS)) {
+        g->playing = false;
+        g->view = VIEW_LABS;
+    }
+    return x + 256;
 }
 
 static float draw_playback_controls(gui_t *g, float x, float y) {
@@ -119,6 +124,10 @@ void panel_toolbar(gui_t *g, Rectangle r) {
 
     if (g->view == VIEW_COMPARE) {
         ui_text(x, y + 6, 15, UI_TEXT_DIM, "Run the same test cases under several algorithms and compare the results side by side.");
+        return;
+    }
+    if (g->view == VIEW_LABS) {
+        ui_text(x, y + 6, 15, UI_TEXT_DIM, "Step through classic OS algorithms on your own inputs, the way they are worked out in class.");
         return;
     }
 

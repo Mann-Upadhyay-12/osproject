@@ -63,7 +63,7 @@ typedef struct {
 } builder_t;
 
 typedef enum { MODE_EDIT = 0, MODE_RUN } gui_mode_t;
-typedef enum { VIEW_SIM = 0, VIEW_COMPARE } gui_view_t;
+typedef enum { VIEW_SIM = 0, VIEW_COMPARE, VIEW_LABS, VIEW_COUNT } gui_view_t;
 
 typedef enum { LTAB_EXPLAIN = 0, LTAB_EVENTS, LTAB_COUNT } left_tab_t;
 typedef enum { MTAB_GANTT = 0, MTAB_STATES, MTAB_TABLE, MTAB_COUNT } mid_tab_t;
@@ -76,6 +76,7 @@ typedef struct {
 } narration_t;
 
 struct compare;
+struct labs;
 
 typedef struct gui {
     sim_t      *sim;
@@ -114,6 +115,7 @@ typedef struct gui {
     gui_view_t  view;
     int         left_tab, mid_tab;
     struct compare *compare;
+    struct labs    *labs;
 
     token_t     tokens[GUI_MAX_TOKENS];
     int         num_tokens;
@@ -221,6 +223,12 @@ void compare_free(gui_t *g);
 void compare_mark_dirty(gui_t *g);
 void compare_view(gui_t *g, Rectangle r);
 void compare_setup_args(gui_t *g, const char *mode);
+
+void labs_init(gui_t *g);
+void labs_free(gui_t *g);
+void labs_view(gui_t *g, Rectangle r);
+void labs_select(gui_t *g, const char *key);
+void labs_drop_file(gui_t *g, const char *path);
 
 void builder_open_new(gui_t *g, bool inject);
 void builder_open_edit(gui_t *g, int pid);
