@@ -122,20 +122,18 @@ static void inspect_process(gui_t *g, int pid, cursor_t *c, Rectangle r) {
     draw_resident_pages(p, c);
 }
 
-static const char *queue_title(int level) {
-    switch (level) {
-        case 0:  return "Queue 0 (head first)";
-        case 1:  return "Queue 1";
-        default: return "Queue 2";
-    }
+static const char *queue_title(const sim_t *s, int row) {
+    if (s->sched_policy == SCHED_SMP) return TextFormat("Core %d run queue", row);
+    return row == 0 ? "Queue 0 (head first)" : TextFormat("Queue %d", row);
 }
 
 static void inspect_ready_queue(const sim_t *s, cursor_t *c) {
     draw_title(c, "Ready Queue", 30);
 
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
-        if (q > 0 && s->ready_count[q] == 0) continue;
-        panel_heading(c, queue_title(q));
+    int rows = gui_ready_queue_rows(s);
+    for (int q = 0; q < rows; q++) {
+        if (q > 0 && s->ready_count[q] == 0 && s->sched_policy != SCHED_SMP) continue;
+        panel_heading(c, queue_title(s, q));
 
         int position = 0;
         for (int pid = s->ready_head[q]; pid != -1 && position < 64; pid = s->procs[pid].next_proc, position++) {

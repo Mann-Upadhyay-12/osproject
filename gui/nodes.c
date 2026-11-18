@@ -82,21 +82,31 @@ static void draw_chip(float x, float y, int pid, const sim_t *s, const char *suf
     ui_text_clipped((Rectangle){x + 4, y, 40, 20}, 13, (Color){20, 20, 24, 255}, label);
 }
 
-static bool has_queue_levels(sched_policy_t policy) {
-    return policy == SCHED_MLFQ || policy == SCHED_ADAPTIVE;
+int gui_ready_queue_rows(const sim_t *s) {
+    switch (s->sched_policy) {
+        case SCHED_MLFQ:
+        case SCHED_ADAPTIVE: return PRISM_MLFQ_QUEUES;
+        case SCHED_SMP:      return s->num_cores;
+        default:             return 1;
+    }
+}
+
+const char *gui_ready_queue_label(const sim_t *s, int row) {
+    return s->sched_policy == SCHED_SMP ? TextFormat("c%d", row) : TextFormat("Q%d", row);
 }
 
 static void draw_ready_body(const sim_t *s, Rectangle r, float x, float y) {
     int waiting = 0;
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) waiting += s->ready_count[q];
+    for (int q = 0; q < PRISM_READY_QUEUES; q++) waiting += s->ready_count[q];
     ui_text(r.x + r.width - 70, r.y + 6, 13, UI_TEXT_DIM, "%d waiting", waiting);
 
-    bool levels = has_queue_levels(s->sched_policy);
-    int num_levels = levels ? PRISM_MLFQ_QUEUES : 1;
+    int rows = gui_ready_queue_rows(s);
+    bool levels = rows > 1;
+    float row_step = rows > PRISM_MLFQ_QUEUES ? 17 : levels ? 21 : 24;
 
-    for (int q = 0; q < num_levels; q++) {
+    for (int q = 0; q < rows; q++) {
         float chip_x = x + (levels ? 24 : 0);
-        if (levels) ui_text(x, y + 2, 13, UI_TEXT_DIM, "Q%d", q);
+        if (levels) ui_text(x, y + 2, 13, UI_TEXT_DIM, "%s", gui_ready_queue_label(s, q));
 
         int shown = 0;
         for (int pid = s->ready_head[q]; pid != -1 && shown < 64; pid = s->procs[pid].next_proc, shown++) {
@@ -108,7 +118,7 @@ static void draw_ready_body(const sim_t *s, Rectangle r, float x, float y) {
             draw_chip(chip_x, y, pid, s, NULL);
             chip_x += CHIP_STEP;
         }
-        y += levels ? 21 : 24;
+        y += row_step;
     }
 
     if (waiting == 0 && !levels) ui_text(x, r.y + 52, 14, UI_TEXT_DIM, "empty");

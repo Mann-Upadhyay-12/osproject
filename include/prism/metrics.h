@@ -18,6 +18,7 @@ typedef struct {
     uint32_t page_faults;
     double   fault_rate;
     uint32_t deadline_misses;
+    uint32_t migrations;
     bool     finished;
 } sim_metrics_t;
 

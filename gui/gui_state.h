@@ -57,6 +57,7 @@ typedef struct {
     int             period;
     int             deadline;
     int             jobs;
+    bool            affinity[PRISM_MAX_CORES];
     char            pages[1200];
     int             num_bursts;
     builder_burst_t bursts[PRISM_MAX_BURSTS];
@@ -209,6 +210,8 @@ void  explain_sync_event(gui_t *g, const sim_event_t *ev);
 void  sync_describe_stall(const sim_t *s, char *out, size_t size);
 void  panel_sync(gui_t *g, Rectangle body);
 void  panel_realtime(gui_t *g, Rectangle body);
+int   gui_ready_queue_rows(const sim_t *s);
+const char *gui_ready_queue_label(const sim_t *s, int row);
 void  explain_realtime_event(gui_t *g, const sim_event_t *ev);
 bool  explain_realtime_preempt(gui_t *g, const sim_event_t *ev);
 void  gui_report_end(gui_t *g);

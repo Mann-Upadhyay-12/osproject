@@ -424,6 +424,11 @@ static const sched_ops_t SCHEDULERS[SCHED_COUNT] = {
         .init = no_init, .on_ready = edf_on_ready, .pick_next = edf_pick_next,
         .on_tick = edf_on_tick, .on_block = no_block
     },
+    [SCHED_SMP] = {
+        .policy = SCHED_SMP, .name = "SMP", .key = "smp",
+        .init = smp_init, .on_ready = smp_on_ready, .pick_next = smp_pick_next,
+        .on_tick = smp_on_tick, .on_block = no_block
+    },
 };
 
 const sched_ops_t *sched_get_ops(sched_policy_t policy) {

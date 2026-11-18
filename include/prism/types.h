@@ -68,6 +68,7 @@ typedef enum {
     SCHED_BFS,
     SCHED_RM,
     SCHED_EDF,
+    SCHED_SMP,
     SCHED_COUNT
 } sched_policy_t;
 
@@ -113,7 +114,8 @@ typedef enum {
     EVENT_STALLED,
     EVENT_JOB_RELEASE,
     EVENT_JOB_COMPLETE,
-    EVENT_DEADLINE_MISS
+    EVENT_DEADLINE_MISS,
+    EVENT_MIGRATE
 } event_type_t;
 
 typedef struct {

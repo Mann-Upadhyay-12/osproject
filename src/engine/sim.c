@@ -37,7 +37,7 @@ void sim_init(sim_t *s, int num_cores, int num_frames, int disk_latency,
     for (int c = 0; c < PRISM_MAX_CORES; c++) {
         s->running_pid[c] = NO_PROCESS;
     }
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
+    for (int q = 0; q < PRISM_READY_QUEUES; q++) {
         s->ready_head[q] = NO_PROCESS;
         s->ready_tail[q] = NO_PROCESS;
     }
@@ -80,6 +80,7 @@ sim_pid_t sim_add_process(sim_t *s, const char *name, tick_t arrival_tick) {
     p->waiting_ipc_pid = NO_PROCESS;
     p->waiting_semaphore = -1;
     p->num_jobs = 1;
+    p->last_core = NO_CORE;
     p->next_proc = NO_PROCESS;
 
     for (int page = 0; page < PRISM_MAX_VIRTUAL_PAGES; page++) {
@@ -361,6 +362,14 @@ static void advance_fault_service(sim_t *s) {
     }
 }
 
+static void count_migration(sim_t *s, pcb_t *p, int core) {
+    if (p->last_core != NO_CORE && p->last_core != core) {
+        p->migrations++;
+        s->total_migrations++;
+    }
+    p->last_core = (int8_t)core;
+}
+
 static void dispatch_idle_cores(sim_t *s) {
     const sched_ops_t *sched = sched_get_ops(s->sched_policy);
 
@@ -372,6 +381,7 @@ static void dispatch_idle_cores(sim_t *s) {
 
         pcb_t *p = &s->procs[pid];
         assert(p->state == PROC_READY);
+        count_migration(s, p, c);
         p->state = PROC_RUNNING;
         p->assigned_core = (int16_t)c;
         s->running_pid[c] = pid;

@@ -264,6 +264,7 @@ static void describe_event(const gui_t *g, const sim_event_t *e, char *out, size
         case EVENT_JOB_RELEASE:      snprintf(out, size, "job %d, due t%d", e->detail1, e->detail2); break;
         case EVENT_JOB_COMPLETE:     snprintf(out, size, e->detail2 > 0 ? "job %d, %d late" : "job %d, %d early", e->detail1, e->detail2 > 0 ? e->detail2 : -e->detail2); break;
         case EVENT_DEADLINE_MISS:    snprintf(out, size, "job %d missed t%d", e->detail1, e->detail2); break;
+        case EVENT_MIGRATE:          snprintf(out, size, "core %d -> core %d", e->detail1, e->detail2); break;
         default:                     out[0] = '\0'; break;
     }
 }

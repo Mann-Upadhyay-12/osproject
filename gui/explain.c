@@ -59,6 +59,13 @@ static const algo_info_t g_sched_info[SCHED_COUNT] = {
         "Optimal on one CPU: meets every deadline whenever utilization <= 100%.",
         "Priorities change all the time; under overload misses cascade unpredictably.",
         "yes (earlier deadline released)"},
+    [SCHED_SMP] = {"SMP (per-core run queues)", "Every core has its own Round Robin queue; work moves only when needed.",
+        "A process returns to the core it last ran on (its cache is still warm there); a new one goes to the "
+        "least-loaded core it is allowed on (affinity). An idle core steals a waiting process from the busiest "
+        "queue, and every 4 ticks the balancer moves one if two queues differ by 2 or more.",
+        "Few core changes (good cache use), no single shared queue to fight over, affinity is honoured.",
+        "Queues can drift out of balance between checks; pinned processes may wait while another core idles.",
+        "yes (quantum expiry within a core)"},
 };
 
 static const algo_info_t g_repl_info[REPL_COUNT] = {
@@ -145,7 +152,7 @@ static void describe_waiting(const sim_t *s, char *out, size_t size) {
     int listed = 0, waiting = 0;
     out[0] = '\0';
 
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
+    for (int q = 0; q < PRISM_READY_QUEUES; q++) {
         int visited = 0;
         for (int pid = s->ready_head[q]; pid != -1 && visited < PRISM_MAX_PROCESSES; pid = s->procs[pid].next_proc, visited++) {
             waiting++;
@@ -220,6 +227,9 @@ static void dispatch_reason(const sim_t *s, const pcb_t *p, char *why, size_t si
         case SCHED_EDF:
             if (p->period) snprintf(why, size, "earliest deadline among ready jobs (t%" PRIu64 ")", (uint64_t)p->job_deadline);
             else snprintf(why, size, "no periodic job is ready, so background work runs");
+            break;
+        case SCHED_SMP:
+            snprintf(why, size, "head of this core's own queue, for a quantum of %u ticks", s->default_quantum);
             break;
         default:
             snprintf(why, size, "chosen by the policy");
@@ -363,6 +373,11 @@ void explain_event(gui_t *g, const sim_event_t *ev) {
         case EVENT_JOB_COMPLETE:
         case EVENT_DEADLINE_MISS:
             explain_realtime_event(g, ev);
+            break;
+        case EVENT_MIGRATE:
+            explain_narrate(g, ev, "%s moves from core %d's queue to core %d's: %s.", n, ev->detail1, ev->detail2,
+                            s->running_pid[ev->detail2] == -1 ? "core is idle and steals work from the busiest queue"
+                                                              : "the balancer evens out queue lengths");
             break;
         default:
             explain_narrate(g, ev, "%s: %s", event_type_str(ev->type), ev->pid >= 0 ? n : "");

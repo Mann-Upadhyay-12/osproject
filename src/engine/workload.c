@@ -143,6 +143,7 @@ static sim_pid_t workload_install_spec(sim_t *sim, const proc_spec_t *spec) {
     p->period = spec->period;
     p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
     p->num_jobs = spec->jobs ? spec->jobs : 1;
+    p->affinity_mask = spec->affinity;
     p->num_bursts = spec->num_bursts;
     memcpy(p->bursts, spec->bursts, spec->num_bursts * sizeof(spec->bursts[0]));
     p->num_page_refs = spec->num_page_refs;
@@ -241,6 +242,14 @@ static void parse_seed(parse_ctx_t *ctx, const char *value) {
     if (ctx->sim) { ctx->sim->seed = seed; ctx->sim->prng_state = seed; }
 }
 
+static uint8_t parse_core_list(const char *list) {
+    uint8_t mask = 0;
+    for (const char *p = list; *p; p++) {
+        if (isdigit((unsigned char)*p) && *p - '0' < PRISM_MAX_CORES) mask |= (uint8_t)(1u << (*p - '0'));
+    }
+    return mask;
+}
+
 static void parse_proc(parse_ctx_t *ctx, char *fields) {
     proc_spec_t spec;
     char bursts[1024] = "";
@@ -258,6 +267,8 @@ static void parse_proc(parse_ctx_t *ctx, char *fields) {
             spec.period = (uint16_t)atoi(token + 7);
         } else if (starts_with(token, "deadline=")) {
             spec.deadline = (uint16_t)atoi(token + 9);
+        } else if (starts_with(token, "affinity=")) {
+            spec.affinity = parse_core_list(token + 9);
         } else if (starts_with(token, "jobs=")) {
             spec.jobs = (uint16_t)atoi(token + 5);
         } else if (starts_with(token, "bursts=")) {

@@ -35,6 +35,7 @@ const char *event_type_str(event_type_t type) {
         case EVENT_JOB_RELEASE:         return "JOB_RELEASE";
         case EVENT_JOB_COMPLETE:        return "JOB_DONE";
         case EVENT_DEADLINE_MISS:       return "DEADLINE_MISS";
+        case EVENT_MIGRATE:             return "MIGRATE";
         default:                        return "UNKNOWN";
     }
 }

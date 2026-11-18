@@ -90,6 +90,7 @@ static void pcb_apply_spec(pcb_t *p, const proc_spec_t *spec, tick_t arrival) {
     p->period = spec->period;
     p->relative_deadline = spec->deadline ? spec->deadline : spec->period;
     p->num_jobs = spec->jobs ? spec->jobs : 1;
+    p->affinity_mask = spec->affinity;
 
     p->num_bursts = spec->num_bursts;
     copy_bursts_unstarted(p->bursts, spec->bursts, spec->num_bursts);
@@ -157,6 +158,7 @@ int sim_get_process_spec(const sim_t *s, sim_pid_t pid, proc_spec_t *out) {
     out->period = p->period;
     out->deadline = p->relative_deadline;
     out->jobs = p->num_jobs;
+    out->affinity = p->affinity_mask;
     out->num_bursts = p->num_bursts;
     copy_bursts_unstarted(out->bursts, p->bursts, p->num_bursts);
     out->num_page_refs = p->num_page_refs;
@@ -213,7 +215,7 @@ void sim_reset(sim_t *s) {
 
 static int drain_ready_queues(sim_t *s, sim_pid_t out[PRISM_MAX_PROCESSES]) {
     int count = 0;
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
+    for (int q = 0; q < PRISM_READY_QUEUES; q++) {
         sim_pid_t pid;
         while (count < PRISM_MAX_PROCESSES && (pid = sim_queue_pop(s, q)) != NO_PROCESS) {
             out[count++] = pid;

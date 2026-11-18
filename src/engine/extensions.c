@@ -30,7 +30,7 @@ bool sim_inject_kill(sim_t *s, sim_pid_t pid) {
         s->running_pid[p->assigned_core] = NO_PROCESS;
         p->assigned_core = NO_CORE;
     }
-    for (int q = 0; q < PRISM_MLFQ_QUEUES; q++) {
+    for (int q = 0; q < PRISM_READY_QUEUES; q++) {
         sim_queue_remove(s, q, pid);
     }
     sim_sem_forget(s, pid);

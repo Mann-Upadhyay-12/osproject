@@ -20,4 +20,9 @@ void      edf_on_ready(sim_t *s, sim_pid_t pid);
 sim_pid_t edf_pick_next(sim_t *s, int core_id);
 void      edf_on_tick(sim_t *s, int core_id, sim_pid_t running_pid);
 
+void      smp_init(sim_t *s);
+void      smp_on_ready(sim_t *s, sim_pid_t pid);
+sim_pid_t smp_pick_next(sim_t *s, int core_id);
+void      smp_on_tick(sim_t *s, int core_id, sim_pid_t running_pid);
+
 #endif

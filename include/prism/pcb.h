@@ -64,6 +64,10 @@ typedef struct {
     bool               job_missed;
     uint16_t           deadline_misses;
 
+    uint8_t            affinity_mask;
+    int8_t             last_core;
+    uint16_t           migrations;
+
     int16_t            next_proc;
 } pcb_t;
 

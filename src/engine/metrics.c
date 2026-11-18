@@ -48,6 +48,7 @@ void sim_metrics_compute(const sim_t *s, sim_metrics_t *m) {
     m->throughput = percent(m->completed, elapsed);
     m->ctx_switches = s->total_context_switches;
     m->deadline_misses = s->total_deadline_misses;
+    m->migrations = s->total_migrations;
     m->page_accesses = s->total_page_accesses;
     m->page_faults = s->total_page_faults;
     m->fault_rate = percent(s->total_page_faults, s->total_page_accesses);

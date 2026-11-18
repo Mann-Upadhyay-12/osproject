@@ -137,7 +137,8 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] Presets `rt_rate_monotonic`, `rt_deadline_miss`; textbook tests in `tests/test_realtime.c`; GUI Real-time tab, builder fields, Compare "Deadline misses"
 
 ## Milestone 19 — Multi-core scheduling
-- [ ] Per-core ready queues, CPU affinity, load balancing (pull migration), migration counts
+- [x] Per-core ready queues (`PRISM_READY_QUEUES`), `SMP` scheduler: cache-warm placement, idle-core stealing, periodic push balancing, `EVENT_MIGRATE`
+- [x] CPU affinity (`affinity=0,2` on a `proc` line, builder checkboxes), core-change count for every policy (metrics + Compare); preset `smp_affinity`; tests in `tests/test_smp.c`
 
 ## Milestone 20 — Process tree
 - [ ] fork / wait bursts, parent-child links, zombies and orphans (re-parented to init), tree view

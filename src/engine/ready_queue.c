@@ -3,7 +3,7 @@
 #define NO_PROCESS (-1)
 
 static bool is_valid_queue(int queue_idx) {
-    return queue_idx >= 0 && queue_idx < PRISM_MLFQ_QUEUES;
+    return queue_idx >= 0 && queue_idx < PRISM_READY_QUEUES;
 }
 
 void sim_queue_push(sim_t *s, int queue_idx, sim_pid_t pid) {

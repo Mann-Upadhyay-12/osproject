@@ -16,6 +16,7 @@ static double makespan(const sim_metrics_t *m)       { return (double)m->makespa
 static double page_faults(const sim_metrics_t *m)    { return m->page_faults; }
 static double fault_rate(const sim_metrics_t *m)     { return m->fault_rate; }
 static double deadline_misses(const sim_metrics_t *m) { return m->deadline_misses; }
+static double migrations(const sim_metrics_t *m)      { return m->migrations; }
 
 static void *alloc_or_die(size_t size) {
     void *p = calloc(1, size);
@@ -36,6 +37,7 @@ static const cmp_metric_t g_sched_metrics[] = {
     {"Throughput", "Processes completed per 100 ticks.", false, "%.2f", throughput},
     {"Makespan", "Tick at which the last process finished.", true, "%.0f", makespan},
     {"Deadline misses", "Jobs of periodic tasks that were not done by their deadline.", true, "%.0f", deadline_misses},
+    {"Core changes", "Times a process ran on a different core than last time (its cache goes cold).", true, "%.0f", migrations},
 };
 
 static const cmp_metric_t g_vm_metrics[] = {
@@ -76,7 +78,7 @@ Color cmp_alg_color(int a) {
     static const Color palette[CMP_MAX_ALGS] = {
         {110, 170, 255, 255}, {255, 160,  70, 255}, {110, 210, 130, 255}, {235,  95, 110, 255},
         {180, 130, 240, 255}, {230, 210,  90, 255}, { 90, 210, 220, 255}, {240, 130, 200, 255},
-        {170, 200,  90, 255}, {200, 160, 120, 255},
+        {170, 200,  90, 255}, {200, 160, 120, 255}, {120, 140, 230, 255},
     };
     return palette[a % CMP_MAX_ALGS];
 }

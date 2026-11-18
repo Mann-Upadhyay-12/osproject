@@ -1,0 +1,20 @@
+# Multi-core with per-core run queues (SMP scheduler): 4 cores, each with its own RR queue.
+# Render and Audio are pinned to core 0, Net to core 3; the rest may run anywhere.
+# A process goes back to the core it last ran on (warm cache); an idle core steals work from the busiest one,
+# and every 4 ticks the balancer moves a waiting process if two queues differ by 2 or more.
+# Switch to RoundRobin (one global queue) and compare "core changes" in the Results table.
+cores 4
+frames 16
+sched smp
+quantum 2
+
+proc Render arrival=0 affinity=0 bursts=C12
+proc Audio arrival=0 affinity=0 bursts=C3,I2,C3,I2,C3
+proc Physics arrival=0 bursts=C10
+proc AI arrival=1 bursts=C8
+proc Net arrival=2 affinity=3 bursts=C2,I3,C2,I3,C2
+proc Batch1 arrival=3 bursts=C9
+proc Batch2 arrival=3 bursts=C9
+proc Batch3 arrival=4 bursts=C9
+proc Short1 arrival=6 bursts=C2
+proc Short2 arrival=6 bursts=C2

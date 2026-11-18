@@ -6,7 +6,8 @@
 #include "prism/vm.h"
 #include "prism/sched.h"
 
-#define PRISM_MLFQ_QUEUES 3
+#define PRISM_MLFQ_QUEUES  3
+#define PRISM_READY_QUEUES (PRISM_MAX_CORES > PRISM_MLFQ_QUEUES ? PRISM_MAX_CORES : PRISM_MLFQ_QUEUES)
 
 typedef void (*sim_observer_fn)(const sim_event_t *ev, void *user);
 
@@ -56,9 +57,9 @@ typedef struct sim {
     int32_t            num_processes;
     pcb_t              procs[PRISM_MAX_PROCESSES];
 
-    int16_t            ready_head[PRISM_MLFQ_QUEUES];
-    int16_t            ready_tail[PRISM_MLFQ_QUEUES];
-    uint16_t           ready_count[PRISM_MLFQ_QUEUES];
+    int16_t            ready_head[PRISM_READY_QUEUES];
+    int16_t            ready_tail[PRISM_READY_QUEUES];
+    uint16_t           ready_count[PRISM_READY_QUEUES];
     tick_t             mlfq_last_boost_tick;
     uint16_t           default_quantum;
     uint64_t           cfs_min_vruntime;
@@ -96,6 +97,8 @@ typedef struct sim {
     uint32_t           total_deadlocks_detected;
     uint32_t           total_deadlocks_recovered;
     uint32_t           total_deadline_misses;
+    uint32_t           total_migrations;
+    tick_t             last_balance_tick;
 
     sim_event_t        event_log[PRISM_MAX_EVENT_LOG];
     uint32_t           event_count;
