@@ -119,8 +119,8 @@ Foundation: events, processes, workload parsing, first scheduler, headless outpu
 - [x] GUI tab: request queue, head, direction; one seek diagram per policy, request-by-request cursor with the reason for each move
 
 ## Milestone 15 — Contiguous memory allocation lab
-- [ ] Core `contig.[ch]`: first / best / worst / next fit, free with hole merging, compaction, external fragmentation stats; tests
-- [ ] GUI tab: request script, memory bar per step, failed requests, fragmentation numbers
+- [x] Core `contig.[ch]`: first / best / worst / next fit, free with hole merging, compaction, external fragmentation stats; tests
+- [x] GUI tab: request script, memory bar per step, failed requests, fragmentation numbers
 
 ## Milestone 16 — Address translation lab
 - [ ] Core `paging.[ch]`: split an address into level indexes + offset, table sizes, internal fragmentation, multi-level walk; tests

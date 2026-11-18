@@ -10,7 +10,7 @@ BUILD_DIR = build
 ENGINE_SRCS = src/engine/sim.c src/engine/ready_queue.c src/engine/extensions.c src/engine/workload.c src/engine/sim_api.c src/engine/scenario.c src/engine/metrics.c
 SCHED_SRCS  = src/sched/schedulers.c
 VM_SRCS     = src/vm/replacement.c
-LABS_SRCS   = src/labs/refstring.c src/labs/disk.c
+LABS_SRCS   = src/labs/refstring.c src/labs/disk.c src/labs/contig.c
 LIB_SRCS    = $(ENGINE_SRCS) $(SCHED_SRCS) $(VM_SRCS) $(LABS_SRCS)
 LIB_OBJS    = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(LIB_SRCS))
 

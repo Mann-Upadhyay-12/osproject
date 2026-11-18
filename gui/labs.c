@@ -9,11 +9,13 @@
 static const char *LAB_NAMES[LAB_COUNT] = {
     [LAB_REFSTRING] = "Reference string",
     [LAB_DISK]      = "Disk scheduling",
+    [LAB_MEMORY]    = "Memory allocation",
 };
 
 static const char *LAB_KEYS[LAB_COUNT] = {
     [LAB_REFSTRING] = "refstring",
     [LAB_DISK]      = "disk",
+    [LAB_MEMORY]    = "memory",
 };
 
 void labs_init(gui_t *g) {
@@ -24,6 +26,7 @@ void labs_init(gui_t *g) {
     }
     lab_refstring_init(&labs->refstring);
     lab_disk_init(&labs->disk);
+    lab_memory_init(&labs->memory);
     g->labs = labs;
 }
 
@@ -123,6 +126,7 @@ void labs_view(gui_t *g, Rectangle r) {
     switch ((lab_kind_t)labs->active) {
         case LAB_REFSTRING: lab_refstring_draw(g, &labs->refstring, body); break;
         case LAB_DISK:      lab_disk_draw(g, &labs->disk, body); break;
+        case LAB_MEMORY:    lab_memory_draw(g, &labs->memory, body); break;
         case LAB_COUNT:     break;
     }
 }

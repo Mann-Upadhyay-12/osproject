@@ -1,3 +1,4 @@
+#include "prism/contig.h"
 #include "prism/disk.h"
 #include "prism/refstring.h"
 #include "test_harness.h"
@@ -196,6 +197,106 @@ static void test_disk_edge_cases(void) {
     TEST_PASS();
 }
 
+static const char *TEXTBOOK_PARTITIONS =
+    "h1=100 #1=10 h2=500 #2=10 h3=200 #3=10 h4=300 #4=10 h5=600 "
+    "free h1 free h2 free h3 free h4 free h5 P1=212 P2=417 P3=112 P4=426";
+
+static const contig_result_t *run_contig(contig_policy_t policy, int memory, const char *script) {
+    static contig_op_t ops[CONTIG_MAX_OPS];
+    static contig_result_t result;
+    int count;
+    if (contig_parse_script(script, ops, CONTIG_MAX_OPS, &count, NULL, 0) != CONTIG_OK) return NULL;
+    if (contig_run(policy, memory, ops, count, &result) != CONTIG_OK) return NULL;
+    return &result;
+}
+
+static int placed_at(const contig_result_t *r, int step) {
+    return r->steps[step].ok ? r->steps[step].address : -1;
+}
+
+static void test_contig_textbook_partitions(void) {
+    TEST_CASE("Memory lab: textbook 212/417/112/426 into holes 100/500/200/300/600");
+
+    const contig_result_t *r = run_contig(CONTIG_FIRST_FIT, 1740, TEXTBOOK_PARTITIONS);
+    ASSERT_TRUE(r != NULL);
+    ASSERT_EQ(r->num_steps, 18);
+    ASSERT_EQ(placed_at(r, 14), 110);
+    ASSERT_EQ(placed_at(r, 15), 1140);
+    ASSERT_EQ(placed_at(r, 16), 322);
+    ASSERT_FALSE(r->steps[17].ok);
+    ASSERT_EQ(r->failed, 1);
+
+    r = run_contig(CONTIG_BEST_FIT, 1740, TEXTBOOK_PARTITIONS);
+    ASSERT_EQ(placed_at(r, 14), 830);
+    ASSERT_EQ(placed_at(r, 15), 110);
+    ASSERT_EQ(placed_at(r, 16), 620);
+    ASSERT_EQ(placed_at(r, 17), 1140);
+    ASSERT_EQ(r->failed, 0);
+
+    r = run_contig(CONTIG_WORST_FIT, 1740, TEXTBOOK_PARTITIONS);
+    ASSERT_EQ(placed_at(r, 14), 1140);
+    ASSERT_EQ(placed_at(r, 15), 110);
+    ASSERT_EQ(placed_at(r, 16), 1352);
+    ASSERT_FALSE(r->steps[17].ok);
+
+    r = run_contig(CONTIG_NEXT_FIT, 1740, TEXTBOOK_PARTITIONS);
+    ASSERT_EQ(placed_at(r, 14), 110);
+    ASSERT_EQ(placed_at(r, 15), 1140);
+    ASSERT_EQ(placed_at(r, 16), 1557);
+    ASSERT_FALSE(r->steps[17].ok);
+    TEST_PASS();
+}
+
+static void test_contig_free_merge_and_compact(void) {
+    TEST_CASE("Memory lab: freeing merges holes, compaction leaves one hole");
+
+    const contig_result_t *r = run_contig(CONTIG_FIRST_FIT, 100, "A=30 B=20 C=30 free B compact -A D=60");
+    ASSERT_TRUE(r != NULL);
+
+    const contig_step_t *after_free = &r->steps[3];
+    ASSERT_EQ(after_free->stats.num_holes, 2);
+    ASSERT_EQ(after_free->stats.free_total, 40);
+    ASSERT_EQ(after_free->stats.largest_hole, 20);
+
+    const contig_step_t *after_compact = &r->steps[4];
+    ASSERT_EQ(after_compact->moved, 30);
+    ASSERT_EQ(after_compact->stats.num_holes, 1);
+    ASSERT_EQ(after_compact->memory.blocks[1].start, 30);
+
+    const contig_step_t *after_free_a = &r->steps[5];
+    ASSERT_EQ(after_free_a->stats.num_holes, 2);
+    ASSERT_FALSE(r->steps[6].ok);
+    ASSERT_TRUE(r->steps[6].stats.free_total >= 60);
+    ASSERT_TRUE(r->steps[6].stats.external_fragmentation > 0.4);
+
+    r = run_contig(CONTIG_FIRST_FIT, 100, "A=50 -A B=100");
+    ASSERT_EQ(r->steps[1].stats.num_holes, 1);
+    ASSERT_TRUE(r->steps[2].ok);
+    TEST_PASS();
+}
+
+static void test_contig_parse_errors(void) {
+    TEST_CASE("Memory lab: script validation");
+
+    contig_op_t ops[4];
+    int count;
+    char bad[64];
+    ASSERT_EQ(contig_parse_script("A=10 hello", ops, 4, &count, bad, sizeof(bad)), CONTIG_ERR_SYNTAX);
+    ASSERT_STR_EQ(bad, "hello");
+    ASSERT_EQ(contig_parse_script("A=0", ops, 4, &count, NULL, 0), CONTIG_ERR_SIZE);
+    ASSERT_EQ(contig_parse_script("A!=5", ops, 4, &count, NULL, 0), CONTIG_ERR_NAME);
+    ASSERT_EQ(contig_parse_script("", ops, 4, &count, NULL, 0), CONTIG_ERR_EMPTY);
+    ASSERT_EQ(contig_parse_script("A=1 B=1 C=1 D=1 E=1", ops, 4, &count, NULL, 0), CONTIG_ERR_TOO_MANY);
+    ASSERT_EQ(contig_parse_script("A=5 free A compact", ops, 4, &count, NULL, 0), CONTIG_OK);
+    ASSERT_EQ(count, 3);
+    ASSERT_EQ(ops[1].kind, CONTIG_OP_FREE);
+    ASSERT_EQ(ops[2].kind, CONTIG_OP_COMPACT);
+
+    static contig_result_t r;
+    ASSERT_EQ(contig_run(CONTIG_FIRST_FIT, 0, ops, count, &r), CONTIG_ERR_MEMORY_SIZE);
+    TEST_PASS();
+}
+
 int main(void) {
     TEST_SUITE_BEGIN("PRISM Labs Suite");
 
@@ -206,6 +307,9 @@ int main(void) {
     test_disk_textbook_totals();
     test_disk_service_order();
     test_disk_edge_cases();
+    test_contig_textbook_partitions();
+    test_contig_free_merge_and_compact();
+    test_contig_parse_errors();
 
     TEST_SUITE_SUMMARY();
     return g_tests_failed == 0 ? 0 : 1;
